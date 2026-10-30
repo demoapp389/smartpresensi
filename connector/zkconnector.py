@@ -5,8 +5,8 @@ Menggantikan connector C# yang bergantung pada COM ``zkemkeeper.ZKEM`` (Windows-
 Menawarkan antarmuka yang identik agar Laravel (``FingerprintConnectorService``) tidak
 perlu tahu bahasa pemrogramannya:
 
-* CLI  : ``--test``, ``--probe``, ``--sync-students``, ``--sync-logs`` (``--since``),
-  ``--sync-time``, ``--scan-lan``.
+* CLI  : ``--test``, ``--probe``, ``--diagnose``, ``--sync-students``, ``--sync-logs``
+  (``--since``), ``--sync-time``, ``--scan-lan``.
 * Daemon: worker per mesin + Local HTTP API di ``127.0.0.1:4371``.
 
 Mendukung **satu atau banyak mesin** dalam satu proses. Konfigurasi mesin tunggal
@@ -35,7 +35,15 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
-from zk_protocol import ZKConnectionError, ZKDevice, ZKError, ZKProtocolError, probe_tcp
+from zk_protocol import (
+    CHUNK_CANDIDATES,
+    CMD_ATTLOG_RRQ,
+    ZKConnectionError,
+    ZKDevice,
+    ZKError,
+    ZKProtocolError,
+    probe_tcp,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "connector_config.ini"
@@ -46,6 +54,9 @@ TCP_PRE_CHECK_TIMEOUT = 1.5
 HTTP_TIMEOUT = 8.0
 DEVICE_LOCK_TIMEOUT = 1.5
 EVENT_READ_TIMEOUT = 1.0
+
+# Backoff saat mesin offline: 5 -> 10 -> 20 -> 40 -> 60 detik (maksimum 60).
+OFFLINE_BACKOFF_SECONDS = (5, 10, 20, 40, 60)
 
 # Mesin tunggal format lama memakai kunci ini dan menyimpan state di BASE_DIR agar
 # watermark/buffer lama tidak hilang saat upgrade.
@@ -346,6 +357,8 @@ class DeviceState:
         self.last_clock_attempt: datetime | None = None
         self.last_clock_sync: datetime | None = None
         self.clock_drift_seconds: int | None = None
+        self.last_read_mode = ""
+        self.last_chunk_size: int | None = None
 
     def load_watermark(self) -> None:
         path = self.device.watermark_file
@@ -372,13 +385,16 @@ class Connector:
         self._stop = threading.Event()
         self._locks: dict[str, threading.Lock] = {}
         self._connected: set[str] = set()
+        self._chunk_hints: dict[str, int] = {}
         self.states: "OrderedDict[str, DeviceState]" = OrderedDict(
             (key, DeviceState(device)) for key, device in config.devices.items()
         )
 
     # ------------------------------------------------------------------ mesin
 
-    def _open_device(self, ip: str, port: int, comm_key: str) -> ZKDevice:
+    def _open_device(
+        self, ip: str, port: int, comm_key: str, chunk_size: int | None = None
+    ) -> ZKDevice:
         """Buka koneksi mesin dengan pre-check TCP port. Raise ZKError bila gagal."""
         if not probe_tcp(ip, port, TCP_PRE_CHECK_TIMEOUT):
             raise ZKConnectionError(
@@ -387,6 +403,8 @@ class Connector:
 
         password = _to_int(comm_key, 0)
         device = ZKDevice(ip, port, timeout=10.0, password=password)
+        if chunk_size:
+            device.chunk_size = int(chunk_size)
         device.connect()
         return device
 
@@ -447,6 +465,119 @@ class Connector:
             return device.probe_capabilities()
         finally:
             device.disconnect()
+
+    def diagnose(self, ip: str, port: int, comm_key: str) -> dict:
+        """Diagnostik read-only: TCP, kapasitas, jam, dan uji tiap ukuran chunk."""
+        host_time = datetime.now().replace(microsecond=0)
+        result = {
+            "device": f"{ip}:{port}",
+            "tcp_reachable": probe_tcp(ip, port, TCP_PRE_CHECK_TIMEOUT),
+            "connected": False,
+            "host_time": host_time.strftime(TIME_FORMAT),
+            "device_time": "",
+            "drift_seconds": None,
+            "users": 0,
+            "records": 0,
+            "chunk_tests": [],
+            "recommendation": "",
+            "error": "",
+        }
+
+        if not result["tcp_reachable"]:
+            result["recommendation"] = (
+                f"Port TCP {ip}:{port} tidak dapat dihubungi. Periksa kabel LAN, IP mesin, "
+                "dan pastikan mesin menyala."
+            )
+            return result
+
+        device = None
+        try:
+            device = self._open_device(ip, port, comm_key)
+            result["connected"] = True
+
+            try:
+                sizes = device.read_sizes()
+                result["users"] = int(sizes.get("users", 0))
+                result["records"] = int(sizes.get("records", 0))
+            except ZKError as exc:
+                result["error"] = f"Gagal membaca kapasitas: {exc}"
+
+            try:
+                device_time = device.get_time()
+                result["device_time"] = device_time.strftime(TIME_FORMAT)
+                result["drift_seconds"] = int(
+                    round((device_time - host_time).total_seconds())
+                )
+            except ZKError as exc:
+                if not result["error"]:
+                    result["error"] = f"Gagal membaca jam mesin: {exc}"
+        except ZKError as exc:
+            result["error"] = str(exc)
+            result["recommendation"] = (
+                "TCP terbuka tetapi handshake gagal. Periksa comm key dan pastikan tidak "
+                "ada aplikasi/sesi lain yang sedang memakai mesin."
+            )
+            return result
+        finally:
+            if device is not None:
+                try:
+                    device.disconnect()
+                except ZKError:
+                    pass
+
+        if result["records"] <= 0:
+            result["recommendation"] = (
+                "Mesin tidak memiliki log absensi, uji ukuran chunk dilewati. "
+                "Lakukan uji ulang setelah ada scan."
+            )
+            return result
+
+        for chunk_size in CHUNK_CANDIDATES:
+            entry = {
+                "chunk_size": chunk_size,
+                "success": False,
+                "bytes": 0,
+                "total_size": 0,
+                "elapsed_seconds": 0.0,
+                "error": "",
+            }
+            started = time.monotonic()
+            handle = None
+            try:
+                handle = self._open_device(ip, port, comm_key)
+                data, total_size = handle.read_with_buffer(
+                    CMD_ATTLOG_RRQ,
+                    preferred_chunk=chunk_size,
+                    allow_direct_fallback=False,
+                )
+                entry["success"] = True
+                entry["bytes"] = len(data)
+                entry["total_size"] = int(total_size)
+            except ZKError as exc:
+                entry["error"] = str(exc)
+            finally:
+                entry["elapsed_seconds"] = round(time.monotonic() - started, 2)
+                if handle is not None:
+                    try:
+                        handle.disconnect()
+                    except ZKError:
+                        pass
+            result["chunk_tests"].append(entry)
+
+        successful = [test["chunk_size"] for test in result["chunk_tests"] if test["success"]]
+        if successful:
+            result["recommendation"] = (
+                f"Chunk {max(successful)} byte berhasil. Connector memakai ukuran ini "
+                "secara otomatis pada siklus berikutnya."
+            )
+        else:
+            result["recommendation"] = (
+                "Semua ukuran chunk gagal. Periksa sesi ganda ke port mesin "
+                "(ss -tnp | grep 4370), lalu coba jalur Web SOAP bila firmware tidak "
+                "mendukung pembacaan buffered."
+            )
+
+        return result
 
     # ------------------------------------------------------- kirim ke Laravel
 
@@ -694,21 +825,29 @@ class Connector:
 
     # ---------------------------------------------------------- poll daemon
 
-    def poll_device(self, device: DeviceConfig) -> None:
-        """Tarik log inkremental dari satu mesin lalu kirim ke Laravel."""
+    def poll_device(self, device: DeviceConfig) -> bool | None:
+        """Tarik log inkremental dari satu mesin lalu kirim ke Laravel.
+
+        Return ``True`` bila mesin berhasil dibaca, ``False`` bila offline/gagal
+        (worker akan backoff), dan ``None`` bila lock mesin sedang dipakai.
+        """
         state = self.states.setdefault(device.key, DeviceState(device))
         lock = self._lock_for(device.ip, device.port)
         if not lock.acquire(timeout=DEVICE_LOCK_TIMEOUT):
-            return
+            return None
 
+        handle = None
         try:
             self._flush_buffer(device, state)
 
-            handle = None
             try:
-                handle = self._open_device(device.ip, device.port, device.comm_key)
+                handle = self._open_device(
+                    device.ip, device.port, device.comm_key, self._chunk_hints.get(device.key)
+                )
                 records = handle.get_attendance()
                 self._connected.add(device.key)
+                state.last_read_mode = handle.last_read_mode
+                state.last_chunk_size = handle.last_chunk_size
 
                 new_records: list[dict] = []
                 for record in records:
@@ -742,13 +881,18 @@ class Connector:
                 except ZKError as exc:
                     state.last_error = f"Sinkronisasi jam gagal: {exc}"
                     _log(f"[CLOCK] {device.key}: {exc}")
+
+                return True
             except ZKError as exc:
                 self._connected.discard(device.key)
                 state.last_error = str(exc)
                 _log(f"[LAN] {device.key} offline: {exc}")
-                return
+                return False
             finally:
                 if handle is not None:
+                    # Simpan ukuran chunk yang berhasil (atau terkecil yang sudah
+                    # dicoba) agar siklus berikutnya tidak mengulang timeout panjang.
+                    self._chunk_hints[device.key] = handle.chunk_size
                     try:
                         handle.disconnect()
                     except ZKError:
@@ -756,7 +900,7 @@ class Connector:
         finally:
             lock.release()
 
-    def _run_event_cycle(self, device: DeviceConfig) -> None:
+    def _run_event_cycle(self, device: DeviceConfig) -> bool | None:
         """Mode event: tunggu CMD_REG_EVENT sesaat, lalu poll inkremental.
 
         Satu koneksi per waktu (banyak mesin hanya mengizinkan satu koneksi TCP):
@@ -766,7 +910,9 @@ class Connector:
         if lock.acquire(timeout=DEVICE_LOCK_TIMEOUT):
             handle = None
             try:
-                handle = self._open_device(device.ip, device.port, device.comm_key)
+                handle = self._open_device(
+                    device.ip, device.port, device.comm_key, self._chunk_hints.get(device.key)
+                )
                 if not handle.register_events():
                     raise ZKProtocolError("Mesin tidak meng-ACK CMD_REG_EVENT.")
 
@@ -779,8 +925,7 @@ class Connector:
             except ZKError as exc:
                 self._connected.discard(device.key)
                 _log(f"[LAN] {device.key} mode event gagal: {exc}")
-                self._stop.wait(self.config.reconnect_interval_seconds)
-                return
+                return False
             finally:
                 if handle is not None:
                     try:
@@ -790,23 +935,44 @@ class Connector:
                 lock.release()
 
         # Selalu rekonsiliasi lewat poll (setelah event atau saat jadwal tiba).
-        self.poll_device(device)
+        return self.poll_device(device)
+
+    @staticmethod
+    def _backoff_seconds(failures: int) -> int:
+        """Jeda sebelum percobaan berikutnya: 5, 10, 20, 40, lalu 60 detik."""
+        if failures <= 1:
+            return OFFLINE_BACKOFF_SECONDS[0]
+        index = min(failures - 1, len(OFFLINE_BACKOFF_SECONDS) - 1)
+        return OFFLINE_BACKOFF_SECONDS[index]
 
     def _worker_loop(self, device: DeviceConfig) -> None:
         state = self.states.setdefault(device.key, DeviceState(device))
         state.load_watermark()
+        failures = 0
 
         while not self._stop.is_set():
             try:
                 if device.mode == "event":
-                    self._run_event_cycle(device)
+                    result = self._run_event_cycle(device)
                 else:
-                    self.poll_device(device)
+                    result = self.poll_device(device)
             except Exception as exc:  # noqa: BLE001 - worker harus tetap hidup
                 _log(f"[ERROR] {device.key}: {exc}")
                 self._connected.discard(device.key)
+                result = False
 
-            self._stop.wait(self.config.poll_interval_seconds if device.mode == "poll" else 0.5)
+            if result is False:
+                failures += 1
+                delay = self._backoff_seconds(failures)
+                _log(
+                    f"[BACKOFF] {device.key}: gagal {failures}x, "
+                    f"percobaan berikutnya dalam {delay} detik."
+                )
+            else:
+                failures = 0
+                delay = self.config.poll_interval_seconds if device.mode == "poll" else 0.5
+
+            self._stop.wait(delay)
 
     def run_daemon(self) -> int:
         _log("======================================================================")
@@ -900,6 +1066,8 @@ class Connector:
                             state.clock_drift_seconds if state else None
                         ),
                         "last_error": state.last_error if state else "",
+                        "last_read_mode": state.last_read_mode if state else "",
+                        "last_chunk_size": state.last_chunk_size if state else None,
                     }
                 )
 
@@ -1030,25 +1198,27 @@ def _start_http_api(port: int, connector: Connector) -> ThreadingHTTPServer | No
     local_api_token = connector.config.local_api_token
 
     class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802 - nama method bawaan http.server
-            if not _api_token_valid(local_api_token, self.headers.get("X-Connector-Token", "")):
-                body = json.dumps({"status": "error", "message": "Unauthorized."}).encode("utf-8")
-                self.send_response(401)
+        def _write_json(self, status: int, payload: dict) -> None:
+            body = json.dumps(payload).encode("utf-8")
+            try:
+                self.send_response(status)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                # Klien (dashboard/health check) menutup koneksi lebih dulu; bukan error fatal.
+                return
+
+        def do_GET(self):  # noqa: N802 - nama method bawaan http.server
+            if not _api_token_valid(local_api_token, self.headers.get("X-Connector-Token", "")):
+                self._write_json(401, {"status": "error", "message": "Unauthorized."})
                 return
 
             parsed = urlparse(self.path)
             query = {key: value[0] for key, value in parse_qs(parsed.query).items()}
             result = connector.handle_api(parsed.path.lower(), query)
-            body = json.dumps(result).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._write_json(200, result)
 
         def log_message(self, *_args):  # senyapkan log default
             return
@@ -1089,6 +1259,25 @@ def run_probe(connector: Connector, device: DeviceConfig) -> int:
     except ZKError as exc:
         _emit({"success": False, "code": -201, "message": str(exc), "capabilities": {}})
         return 1
+
+
+def run_diagnose(connector: Connector, device: DeviceConfig) -> int:
+    _log(f"[DIAG] Memeriksa {device.key} ({device.ip}:{device.port}) ...")
+    result = connector.diagnose(device.ip, device.port, device.comm_key)
+    payload = {"success": bool(result.get("connected")), "code": 0, **result}
+    _emit(payload)
+
+    for test in result.get("chunk_tests", []):
+        status = "OK" if test.get("success") else "GAGAL"
+        _log(
+            f"[DIAG] chunk {test['chunk_size']:>5} byte: {status} "
+            f"({test['elapsed_seconds']}s)"
+        )
+
+    if result.get("recommendation"):
+        _log(f"[DIAG] {result['recommendation']}")
+
+    return 0 if result.get("connected") else 1
 
 
 def run_sync_students(connector: Connector, device: DeviceConfig) -> int:
@@ -1160,6 +1349,11 @@ def parse_arguments(argv: list[str]):
     parser = argparse.ArgumentParser(description="Connector Solution X601 lintas-OS")
     parser.add_argument("--test", action="store_true", help="Uji koneksi ke mesin")
     parser.add_argument("--probe", action="store_true", help="Deteksi kapabilitas mesin (JSON)")
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Diagnostik lengkap: TCP, kapasitas, jam, dan uji ukuran chunk",
+    )
     parser.add_argument("--sync-students", action="store_true", help="Baca seluruh user mesin")
     parser.add_argument("--sync-logs", action="store_true", help="Baca seluruh log absensi")
     parser.add_argument(
@@ -1230,6 +1424,7 @@ def main(argv: list[str] | None = None) -> int:
         (
             args.test,
             args.probe,
+            args.diagnose,
             args.sync_students,
             args.sync_logs,
             bool(args.sync_time),
@@ -1248,6 +1443,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_test(connector, device)
     if args.probe:
         return run_probe(connector, device)
+    if args.diagnose:
+        return run_diagnose(connector, device)
     if args.sync_students:
         return run_sync_students(connector, device)
     if args.sync_time:

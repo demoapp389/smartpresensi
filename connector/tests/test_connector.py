@@ -23,13 +23,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import zkconnector  # noqa: E402
 from zk_protocol import (  # noqa: E402
+    CHUNK_CANDIDATES,
     CMD_ACK_OK,
+    CMD_ATTLOG_RRQ,
+    CMD_FREE_DATA,
     CMD_GET_TIME,
     CMD_REG_EVENT,
     CMD_SET_TIME,
     MACHINE_PREPARE_DATA_1,
     MACHINE_PREPARE_DATA_2,
     ZKDevice,
+    ZKConnectionError,
     ZKProtocolError,
     _checksum,
 )
@@ -112,6 +116,9 @@ class FakeDevice:
         self.time_error = time_error
         self.get_time_calls = 0
         self.set_time_calls: list[datetime] = []
+        self.chunk_size = 1024
+        self.last_chunk_size: int | None = 1024
+        self.last_read_mode = "buffered"
 
     def get_attendance(self) -> list[dict]:
         return list(self.records)
@@ -414,7 +421,7 @@ class ConnectorTest(unittest.TestCase):
     def test_poll_device_sends_only_new_records_and_advances_watermark(self) -> None:
         sent: list[dict] = []
         self.connector.send_logs = lambda records, token: sent.extend(records) or True
-        self.connector._open_device = lambda ip, port, comm_key: FakeDevice(
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: FakeDevice(
             [
                 _record("101", "2026-10-14 07:05:00"),
                 _record("102", "2026-10-14 07:06:00"),
@@ -433,7 +440,7 @@ class ConnectorTest(unittest.TestCase):
 
         # Scan berikutnya: hanya yang lebih baru yang dikirim.
         sent.clear()
-        self.connector._open_device = lambda ip, port, comm_key: FakeDevice(
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: FakeDevice(
             [
                 _record("101", "2026-10-14 07:05:00"),
                 _record("103", "2026-10-14 07:07:00"),
@@ -444,7 +451,7 @@ class ConnectorTest(unittest.TestCase):
 
     def test_poll_device_buffers_records_when_send_fails(self) -> None:
         self.connector.send_logs = lambda records, token: False
-        self.connector._open_device = lambda ip, port, comm_key: FakeDevice(
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: FakeDevice(
             [_record("101", "2026-10-14 07:05:00")]
         )
         device = self.config.devices["gerbang"]
@@ -465,6 +472,134 @@ class ConnectorTest(unittest.TestCase):
         self.assertFalse(buffer.exists())
         self.assertTrue(any(r["pin"] == "101" for r in delivered))
 
+    def test_poll_device_caches_successful_chunk_size(self) -> None:
+        fake = FakeDevice([])
+        fake.chunk_size = 1024
+        fake.last_chunk_size = 1024
+        fake.last_read_mode = "buffered"
+        self.connector._open_device = (
+            lambda ip, port, comm_key, chunk_size=None: fake
+        )
+        device = self.config.devices["gerbang"]
+
+        self.assertTrue(self.connector.poll_device(device))
+
+        self.assertEqual(self.connector._chunk_hints["gerbang"], 1024)
+        state = self.connector.states["gerbang"]
+        self.assertEqual(state.last_chunk_size, 1024)
+        self.assertEqual(state.last_read_mode, "buffered")
+
+    def test_poll_device_passes_cached_chunk_hint(self) -> None:
+        seen: list[int | None] = []
+        fake = FakeDevice([])
+
+        def _open(ip, port, comm_key, chunk_size=None):
+            seen.append(chunk_size)
+            return fake
+
+        self.connector._chunk_hints["gerbang"] = 8192
+        self.connector._open_device = _open
+        device = self.config.devices["gerbang"]
+
+        self.connector.poll_device(device)
+
+        self.assertEqual(seen, [8192])
+
+    def test_poll_device_returns_false_when_device_is_offline(self) -> None:
+        def _offline(*_args, **_kwargs):
+            raise ZKConnectionError("Mesin tidak merespons.")
+
+        self.connector._open_device = _offline
+        device = self.config.devices["gerbang"]
+
+        self.assertFalse(self.connector.poll_device(device))
+        self.assertIn("tidak merespons", self.connector.states["gerbang"].last_error)
+
+    def test_backoff_seconds_grows_then_caps_at_sixty(self) -> None:
+        delays = [self.connector._backoff_seconds(failures) for failures in range(1, 8)]
+
+        self.assertEqual(delays, [5, 10, 20, 40, 60, 60, 60])
+
+    def test_worker_loop_backs_off_after_failures(self) -> None:
+        self.connector.poll_device = lambda device: False
+        waits: list[float] = []
+
+        def _wait(seconds: float) -> None:
+            waits.append(seconds)
+            if len(waits) >= 4:
+                self.connector._stop.set()
+
+        self.connector._stop.wait = _wait
+        self.connector._worker_loop(self.config.devices["gerbang"])
+
+        self.assertEqual(waits, [5, 10, 20, 40])
+
+    def test_worker_loop_resets_backoff_after_success(self) -> None:
+        results = iter([False, False, True])
+        self.connector.poll_device = lambda device: next(results, True)
+        self.config.poll_interval_seconds = 7
+        waits: list[float] = []
+
+        def _wait(seconds: float) -> None:
+            waits.append(seconds)
+            if len(waits) >= 3:
+                self.connector._stop.set()
+
+        self.connector._stop.wait = _wait
+        self.connector._worker_loop(self.config.devices["gerbang"])
+
+        self.assertEqual(waits, [5, 10, 7])
+
+    def test_diagnose_reports_tcp_unreachable(self) -> None:
+        with mock.patch.object(zkconnector, "probe_tcp", return_value=False):
+            result = self.connector.diagnose("10.0.0.1", 4370, "0")
+
+        self.assertFalse(result["tcp_reachable"])
+        self.assertFalse(result["connected"])
+        self.assertIn("tidak dapat dihubungi", result["recommendation"])
+
+    def test_diagnose_tests_each_chunk_size(self) -> None:
+        class FakeDiagDevice:
+            def read_sizes(self) -> dict:
+                return {"users": 1, "records": 10}
+
+            def get_time(self) -> datetime:
+                return datetime.now()
+
+            def read_with_buffer(
+                self,
+                command,
+                fct=0,
+                ext=0,
+                preferred_chunk=None,
+                allow_direct_fallback=True,
+            ):
+                if preferred_chunk and preferred_chunk > 32768:
+                    raise ZKProtocolError("chunk ditolak")
+                return b"\x04\x00\x00\x00data", 8
+
+            def disconnect(self) -> None:
+                return None
+
+        self.connector._open_device = lambda *args, **kwargs: FakeDiagDevice()
+
+        with mock.patch.object(zkconnector, "probe_tcp", return_value=True):
+            result = self.connector.diagnose("10.0.0.1", 4370, "0")
+
+        self.assertTrue(result["connected"])
+        self.assertEqual(
+            [test["chunk_size"] for test in result["chunk_tests"]],
+            list(CHUNK_CANDIDATES),
+        )
+        self.assertEqual(
+            [test["success"] for test in result["chunk_tests"]],
+            [False] + [True] * (len(CHUNK_CANDIDATES) - 1),
+        )
+        self.assertIn("32768", result["recommendation"])
+
+    def test_diagnose_flag_is_parsed(self) -> None:
+        self.assertTrue(zkconnector.parse_arguments(["--diagnose"]).diagnose)
+
     def test_fetch_logs_filters_records_before_since(self) -> None:
         fake = FakeDevice(
             [
@@ -472,7 +607,7 @@ class ConnectorTest(unittest.TestCase):
                 _record("102", "2026-10-14 07:06:00"),
             ]
         )
-        self.connector._open_device = lambda ip, port, comm_key: fake
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
         device = self.config.devices["gerbang"]
 
         logs = self.connector.fetch_logs(
@@ -533,7 +668,7 @@ class ConnectorTest(unittest.TestCase):
         state.seen_at_watermark = {first["source_key"]}
         sent: list[dict] = []
         self.connector.send_logs = lambda records, token: sent.extend(records) or True
-        self.connector._open_device = lambda ip, port, comm_key: FakeDevice([first, second])
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: FakeDevice([first, second])
         device = self.config.devices["gerbang"]
 
         self.connector.poll_device(device)
@@ -549,7 +684,7 @@ class ConnectorTest(unittest.TestCase):
         self.config.clock_sync_minutes = 60
         self.config.clock_max_drift_seconds = 60
         fake = FakeDevice([], device_time=datetime.now())
-        self.connector._open_device = lambda ip, port, comm_key: fake
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
         device = self.config.devices["gerbang"]
 
         self.connector.poll_device(device)
@@ -662,7 +797,7 @@ class ConnectorTest(unittest.TestCase):
 
     def test_manual_sync_time_uses_current_host_clock(self) -> None:
         fake = FakeDevice([], device_time=datetime.now() - timedelta(seconds=10))
-        self.connector._open_device = lambda ip, port, comm_key: fake
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
         device = self.config.devices["gerbang"]
 
         result = self.connector.sync_time(device.ip, device.port, device.comm_key)
@@ -674,7 +809,7 @@ class ConnectorTest(unittest.TestCase):
 
     def test_manual_sync_time_refuses_backward_correction(self) -> None:
         fake = FakeDevice([], device_time=datetime.now() + timedelta(minutes=5))
-        self.connector._open_device = lambda ip, port, comm_key: fake
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
         device = self.config.devices["gerbang"]
 
         result = self.connector.sync_time(device.ip, device.port, device.comm_key)
@@ -693,7 +828,7 @@ class ConnectorTest(unittest.TestCase):
 
     def test_sync_time_api_uses_current_host_clock(self) -> None:
         fake = FakeDevice([], device_time=datetime.now() - timedelta(seconds=10))
-        self.connector._open_device = lambda ip, port, comm_key: fake
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
 
         result = self.connector.handle_api("/api/sync-time", {})
 
@@ -702,7 +837,7 @@ class ConnectorTest(unittest.TestCase):
 
     def test_run_sync_time_sets_clock_and_returns_success(self) -> None:
         fake = FakeDevice([], device_time=datetime.now() - timedelta(seconds=10))
-        self.connector._open_device = lambda ip, port, comm_key: fake
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
         emitted: list[dict] = []
         device = self.config.devices["gerbang"]
 
@@ -727,6 +862,117 @@ class ConnectorTest(unittest.TestCase):
         self.assertEqual(device["last_clock_sync"], "2026-10-23 12:01:00")
         self.assertEqual(device["clock_drift_seconds"], -20)
         self.assertEqual(result["clock_sync_minutes"], 0)
+
+
+class ReadBufferFallbackTest(unittest.TestCase):
+    """Regresi firmware yang menolak CMD_READ_BUFFER 64 KB."""
+
+    def test_read_with_buffer_retries_smaller_chunks_then_caches_size(self) -> None:
+        device = ZKDevice("127.0.0.1")
+        device._reconnect = lambda: None
+        attempts: list[int] = []
+
+        def _once(command, fct, ext, chunk_size):
+            attempts.append(chunk_size)
+            if chunk_size > 1024:
+                raise ZKProtocolError(f"ditolak {chunk_size}")
+            return b"\x04\x00\x00\x00data", 8
+
+        device._read_with_buffer_once = _once
+
+        data, size = device.read_with_buffer(CMD_ATTLOG_RRQ)
+
+        self.assertEqual(data, b"\x04\x00\x00\x00data")
+        self.assertEqual(size, 8)
+        self.assertEqual(attempts, list(CHUNK_CANDIDATES))
+        self.assertEqual(device.last_chunk_size, 1024)
+        self.assertEqual(device.last_read_mode, "buffered")
+
+        # Percobaan berikutnya langsung memakai ukuran yang berhasil.
+        attempts.clear()
+        device.read_with_buffer(CMD_ATTLOG_RRQ)
+        self.assertEqual(attempts, [1024])
+
+    def test_read_with_buffer_falls_back_to_direct_read(self) -> None:
+        device = ZKDevice("127.0.0.1")
+        device._reconnect = lambda: None
+
+        def _boom(command, fct, ext, chunk_size):
+            raise ZKProtocolError("buffered ditolak")
+
+        device._read_with_buffer_once = _boom
+        device.read_direct = lambda command, fct=0, ext=0: (
+            b"\x04\x00\x00\x00data",
+            8,
+        )
+
+        data, size = device.read_with_buffer(CMD_ATTLOG_RRQ)
+
+        self.assertEqual(data, b"\x04\x00\x00\x00data")
+        self.assertEqual(size, 8)
+        self.assertEqual(device.last_read_mode, "direct")
+        self.assertIsNone(device.last_chunk_size)
+        self.assertEqual(device.chunk_size, CHUNK_CANDIDATES[-1])
+
+    def test_read_with_buffer_reports_all_attempts_on_failure(self) -> None:
+        device = ZKDevice("127.0.0.1")
+        device._reconnect = lambda: None
+
+        def _boom(command, fct, ext, chunk_size):
+            raise ZKProtocolError("buffered ditolak")
+
+        device._read_with_buffer_once = _boom
+        device.read_direct = lambda *args, **kwargs: (_ for _ in ()).throw(
+            ZKProtocolError("direct ditolak")
+        )
+
+        with self.assertRaises(ZKProtocolError) as ctx:
+            device.read_with_buffer(CMD_ATTLOG_RRQ)
+
+        message = str(ctx.exception)
+        self.assertIn("65472", message)
+        self.assertIn("1024", message)
+        self.assertIn("direct ditolak", message)
+
+    def test_read_chunk_error_includes_response_code(self) -> None:
+        device = ZKDevice("127.0.0.1")
+        device._send_command = lambda *args, **kwargs: {"status": False, "code": 2001}
+
+        with self.assertRaisesRegex(ZKProtocolError, "kode respons 2001"):
+            device._read_chunk(0, 1024)
+
+    def test_read_direct_truncates_trailing_bytes(self) -> None:
+        device = ZKDevice("127.0.0.1")
+        sent: list[int] = []
+        device._send_command = lambda command, *args, **kwargs: (
+            sent.append(command) or {"status": True, "code": CMD_ACK_OK}
+        )
+        device._recv_chunk = lambda: struct.pack("<I", 8) + b"abcdefghTRAILER"
+
+        data, size = device.read_direct(CMD_ATTLOG_RRQ)
+
+        self.assertEqual(data, struct.pack("<I", 8) + b"abcdefgh")
+        self.assertEqual(size, 12)
+        self.assertEqual(sent, [CMD_ATTLOG_RRQ, CMD_FREE_DATA])
+
+    def test_read_direct_completes_short_payload(self) -> None:
+        device = ZKDevice("127.0.0.1")
+        device._send_command = lambda *args, **kwargs: {"status": True, "code": CMD_ACK_OK}
+        device._recv_chunk = lambda: struct.pack("<I", 8) + b"abc"
+        device._recv_raw = lambda size: b"defgh"[:size]
+
+        data, size = device.read_direct(CMD_ATTLOG_RRQ)
+
+        self.assertEqual(data, struct.pack("<I", 8) + b"abcdefgh")
+        self.assertEqual(size, 12)
+
+    def test_read_direct_rejects_zero_size(self) -> None:
+        device = ZKDevice("127.0.0.1")
+        device._send_command = lambda *args, **kwargs: {"status": True, "code": CMD_ACK_OK}
+        device._recv_chunk = lambda: struct.pack("<I", 0)
+
+        with self.assertRaisesRegex(ZKProtocolError, "ukuran data 0"):
+            device.read_direct(CMD_ATTLOG_RRQ)
 
 
 class ProtocolTest(unittest.TestCase):
@@ -814,6 +1060,28 @@ class ProtocolTest(unittest.TestCase):
     def test_encode_time_rejects_out_of_range_year(self) -> None:
         with self.assertRaises(ValueError):
             ZKDevice._encode_time(datetime(1999, 12, 31, 23, 59, 59))
+
+    def test_send_command_reads_exact_body_and_exposes_payload(self) -> None:
+        device = ZKDevice("127.0.0.1")
+        device._sock = FakeSocket(_frame(CMD_ACK_OK, b"\x01\x02\x03\x04"))
+
+        response = device._send_command(CMD_GET_TIME)
+
+        self.assertTrue(response["status"])
+        self.assertEqual(device._tcp_length, 12)
+        self.assertEqual(device._data, b"\x01\x02\x03\x04")
+
+    def test_read_sizes_parses_payload_without_header_offset(self) -> None:
+        device = ZKDevice("127.0.0.1")
+        fields = [0] * 20
+        fields[4] = 5
+        fields[6] = 9
+        fields[8] = 42
+        device._sock = FakeSocket(_frame(CMD_ACK_OK, struct.pack("20i", *fields)))
+
+        sizes = device.read_sizes()
+
+        self.assertEqual(sizes, {"users": 5, "fingers": 9, "records": 42})
 
     def test_get_time_decodes_machine_time(self) -> None:
         scan = datetime(2026, 10, 14, 7, 5, 12)

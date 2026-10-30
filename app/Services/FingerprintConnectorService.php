@@ -109,11 +109,34 @@ class FingerprintConnectorService
     }
 
     /**
-     * Verifikasi konektivitas fisik riil ke mesin (pre-check soket LAN).
-     * Dipakai oleh heartbeat terjadwal untuk menentukan status online/offline aktual.
+     * Verifikasi konektivitas fisik riil ke mesin.
+     *
+     * Heartbeat memakai status dari connector (`/api/status`) agar tidak membuka sesi
+     * TCP kedua ke mesin yang sedang dibaca. Pemeriksaan soket langsung hanya dipakai
+     * sebagai fallback saat connector tidak aktif atau mesin tidak terdaftar di sana.
      */
     public function checkConnectivity(FingerprintDevice $device): bool
     {
+        $status = $this->callHttpApi('/api/status', [], 2);
+
+        if (is_array($status) && ($status['status'] ?? null) === 'ok') {
+            foreach (($status['devices'] ?? []) as $entry) {
+                if (! is_array($entry)) {
+                    continue;
+                }
+
+                if (($entry['ip'] ?? null) !== $device->ip) {
+                    continue;
+                }
+
+                if ((int) ($entry['port'] ?? 0) !== (int) $device->port) {
+                    continue;
+                }
+
+                return (bool) ($entry['connected'] ?? false);
+            }
+        }
+
         return $this->checkSocketReachable($device->ip, (int) $device->port) === true;
     }
 

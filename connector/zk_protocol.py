@@ -6,7 +6,9 @@ pustaka standar Python.
 
 Cakupan sengaja dibatasi pada operasi read-only yang dipakai connector:
 koneksi + comm key, baca kapasitas mesin, baca seluruh user, dan baca seluruh log absensi.
-Semua baca data memakai mode "buffered read" (CMD_PREPARE_BUFFER/CMD_READ_BUFFER) pada TCP.
+Baca data memakai mode "buffered read" (CMD_PREPARE_BUFFER/CMD_READ_BUFFER) pada TCP.
+Bila firmware menolak ukuran chunk besar, pembacaan diulang dengan chunk yang lebih kecil
+(adaptif) lalu jatuh ke mode non-buffered (CMD_ATTLOG_RRQ) sebagai upaya terakhir.
 """
 
 from __future__ import annotations
@@ -53,6 +55,17 @@ MACHINE_PREPARE_DATA_1 = 0x5050
 MACHINE_PREPARE_DATA_2 = 0x7D82
 
 TCP_MAX_CHUNK = 0xFFC0
+
+# Ukuran chunk buffered yang dicoba berurutan. Sebagian firmware X601 menolak
+# CMD_READ_BUFFER 64 KB, sehingga pembacaan harus mundur ke ukuran yang lebih kecil.
+CHUNK_CANDIDATES = (TCP_MAX_CHUNK, 32768, 16384, 8192, 4096, 1024)
+
+# Batas waktu per chunk; lebih pendek dari timeout koneksi agar siklus poll tidak
+# menggantung ~55 detik saat firmware menolak chunk.
+CHUNK_READ_TIMEOUT = 5.0
+
+# Perintah yang masih bisa dibaca tanpa mode buffered (format respons CMD_PREPARE_DATA).
+DIRECT_READ_COMMANDS = (CMD_ATTLOG_RRQ,)
 
 
 class ZKError(Exception):
@@ -147,6 +160,13 @@ class ZKDevice:
         self.fingers = 0
         self.records = 0
 
+        # Ukuran chunk terakhir yang berhasil (dipakai ulang pada koneksi berikutnya)
+        # dan metadata hasil baca untuk diagnostik/heartbeat.
+        self.chunk_size = TCP_MAX_CHUNK
+        self.last_chunk_size: int | None = None
+        self.last_read_mode = ""
+        self.chunk_attempts: list[int] = []
+
     # ------------------------------------------------------------------ koneksi
 
     def connect(self) -> "ZKDevice":
@@ -240,18 +260,36 @@ class ZKDevice:
         top = self._tcp_top(buf)
         try:
             self._sock.sendall(top)
-            self._data_recv = self._recv_exactly(response_size + 8)
+
+            # Baca header TCP lebih dulu, lalu tepat sebesar panjang yang dilaporkan.
+            # Cara ini menghindari menunggu timeout saat mesin membalas ACK pendek.
+            head = self._recv_exactly(8)
+            if len(head) < 8:
+                raise ZKProtocolError("Paket TCP dari mesin tidak valid.")
+
+            magic_1, magic_2, body_length = struct.unpack("<HHI", head)
+            if (
+                magic_1 != MACHINE_PREPARE_DATA_1
+                or magic_2 != MACHINE_PREPARE_DATA_2
+                or body_length < 8
+            ):
+                raise ZKProtocolError("Paket TCP dari mesin tidak valid.")
+
+            body = self._recv_exactly(body_length)
+            if len(body) < body_length:
+                raise ZKProtocolError(
+                    f"Respons mesin tidak lengkap ({len(body)}/{body_length} byte)."
+                )
         except OSError as exc:
             raise ZKConnectionError(f"Gagal mengirim/menerima data: {exc}") from exc
 
-        self._tcp_length = self._test_tcp_top(self._data_recv)
-        if self._tcp_length == 0:
-            raise ZKProtocolError("Paket TCP dari mesin tidak valid.")
+        self._data_recv = head + body
+        self._tcp_length = body_length
 
-        header = struct.unpack("<4H", self._data_recv[8:16])
+        header = struct.unpack("<4H", body[:8])
         self._response = header[0]
         self._reply_id = header[3]
-        self._data = self._data_recv[8:]
+        self._data = body[8:]
 
         status = self._response in (CMD_ACK_OK, CMD_PREPARE_DATA, CMD_DATA)
         return {"status": status, "code": self._response}
@@ -332,20 +370,44 @@ class ZKDevice:
         return None
 
     def _read_chunk(self, start: int, size: int) -> bytes:
-        for _ in range(3):
-            command_string = struct.pack("<ii", start, size)
-            self._send_command(CMD_READ_BUFFER, command_string, size + 32)
+        last_code = None
+        command_string = struct.pack("<ii", start, size)
+        for _ in range(2):
+            response = self._send_command(CMD_READ_BUFFER, command_string, size + 32)
+            last_code = response["code"]
+            if not response["status"]:
+                continue
             data = self._recv_chunk()
-            if data is not None:
+            if data:
                 return data
-        raise ZKProtocolError(f"Gagal membaca buffer pada offset {start} ukuran {size}")
+        raise ZKProtocolError(
+            f"Gagal membaca buffer pada offset {start} ukuran {size} "
+            f"(kode respons {last_code})"
+        )
 
-    def read_with_buffer(self, command: int, fct: int = 0, ext: int = 0):
-        """Baca data memakai mode buffered (CMD_PREPARE_BUFFER + CMD_READ_BUFFER)."""
+    def _chunk_candidates(self, preferred_chunk: int | None = None) -> list[int]:
+        """Ukuran chunk yang akan dicoba, mulai dari hint terakhir bila ada."""
+        if preferred_chunk:
+            return [int(preferred_chunk)]
+
+        start = self.chunk_size if self.chunk_size in CHUNK_CANDIDATES else TCP_MAX_CHUNK
+        return list(CHUNK_CANDIDATES[CHUNK_CANDIDATES.index(start) :])
+
+    def _reconnect(self) -> None:
+        """Putus lalu sambung ulang untuk mereset sesi setelah pembacaan gagal."""
+        self.close()
+        self.connected = False
+        self.connect()
+
+    def _read_with_buffer_once(
+        self, command: int, fct: int, ext: int, chunk_size: int
+    ) -> tuple[bytes, int]:
         command_string = struct.pack("<bhii", 1, command, fct, ext)
         response = self._send_command(CMD_PREPARE_BUFFER, command_string, 1024)
         if not response["status"]:
-            raise ZKProtocolError("Mesin tidak mendukung pembacaan buffered.")
+            raise ZKProtocolError(
+                f"Mesin tidak mendukung pembacaan buffered (kode {response['code']})."
+            )
 
         if response["code"] == CMD_DATA:
             if len(self._data) < (self._tcp_length - 8):
@@ -357,17 +419,149 @@ class ZKDevice:
         size = struct.unpack("I", self._data[1:5])[0]
         data = []
         start = 0
-        remain = size % TCP_MAX_CHUNK
-        packets = (size - remain) // TCP_MAX_CHUNK
+        remain = size % chunk_size
+        packets = (size - remain) // chunk_size
         for _ in range(packets):
-            data.append(self._read_chunk(start, TCP_MAX_CHUNK))
-            start += TCP_MAX_CHUNK
+            data.append(self._read_chunk(start, chunk_size))
+            start += chunk_size
         if remain:
             data.append(self._read_chunk(start, remain))
             start += remain
 
         self._send_command(CMD_FREE_DATA)
         return b"".join(data), start
+
+    def read_with_buffer(
+        self,
+        command: int,
+        fct: int = 0,
+        ext: int = 0,
+        preferred_chunk: int | None = None,
+        allow_direct_fallback: bool = True,
+    ):
+        """Baca data memakai mode buffered dengan chunk adaptif.
+
+        Firmware yang menolak chunk besar akan dicoba ulang memakai chunk lebih kecil
+        (koneksi di-reset antar-percobaan). Bila semua ukuran gagal dan perintahnya
+        mendukung mode non-buffered, pembacaan langsung dipakai sebagai upaya terakhir.
+        """
+        original_timeout = self.timeout
+        candidates = self._chunk_candidates(preferred_chunk)
+        attempted: list[int] = []
+        errors: list[str] = []
+
+        try:
+            self.set_timeout(min(original_timeout, CHUNK_READ_TIMEOUT))
+            for index, chunk_size in enumerate(candidates):
+                attempted.append(chunk_size)
+                try:
+                    data, size = self._read_with_buffer_once(command, fct, ext, chunk_size)
+                except (ZKProtocolError, ZKConnectionError) as exc:
+                    errors.append(f"chunk {chunk_size}: {exc}")
+                    if index + 1 < len(candidates):
+                        try:
+                            self._reconnect()
+                        except ZKError as reconnect_exc:
+                            errors.append(f"reconnect: {reconnect_exc}")
+                            break
+                    continue
+
+                self.chunk_size = chunk_size
+                self.last_chunk_size = chunk_size
+                self.last_read_mode = "buffered"
+                self.chunk_attempts = attempted
+                return data, size
+        finally:
+            self.set_timeout(original_timeout)
+
+        if allow_direct_fallback and command in DIRECT_READ_COMMANDS:
+            try:
+                data, size = self.read_direct(command, fct, ext)
+            except (ZKProtocolError, ZKConnectionError) as exc:
+                errors.append(f"direct: {exc}")
+            else:
+                self.chunk_size = candidates[-1]
+                self.last_chunk_size = None
+                self.last_read_mode = "direct"
+                self.chunk_attempts = attempted
+                return data, size
+
+        # Mulai dari ukuran terkecil pada percobaan berikutnya agar tidak mengulang
+        # timeout panjang bila firmware memang menolak chunk besar.
+        self.chunk_size = candidates[-1]
+        self.last_chunk_size = None
+        self.chunk_attempts = attempted
+        detail = " | ".join(errors) if errors else "tidak ada respons"
+        raise ZKProtocolError(
+            "Gagal membaca buffer setelah mencoba ukuran chunk "
+            f"{', '.join(str(size) for size in attempted)}. Rincian: {detail}"
+        )
+
+    @staticmethod
+    def _split_size_prefix(data: bytes) -> tuple[int, int]:
+        """Tentukan offset & ukuran payload dari respons mesin.
+
+        Mesin bisa membalas payload berawalan 4 byte ukuran, atau paket CMD_DATA
+        lengkap (header 8 byte + ukuran 4 byte + payload). Keduanya dibedakan dari
+        panjang data agar payload yang kebetulan mirip kode perintah tidak salah potong.
+        """
+        if len(data) >= 12:
+            command = struct.unpack("<H", data[:2])[0]
+            size_after_header = struct.unpack("<I", data[8:12])[0]
+            if (
+                command in (CMD_DATA, CMD_PREPARE_DATA, CMD_ACK_OK)
+                and 0 < size_after_header
+                and len(data) >= 12 + size_after_header
+            ):
+                return 8, size_after_header
+
+        if len(data) < 4:
+            raise ZKProtocolError(
+                f"Data pembacaan langsung terlalu pendek ({len(data)} byte)."
+            )
+
+        total_size = struct.unpack("<I", data[:4])[0]
+        if total_size <= 0:
+            raise ZKProtocolError("Mesin melaporkan ukuran data 0 pada pembacaan langsung.")
+
+        return 0, total_size
+
+    def read_direct(self, command: int, fct: int = 0, ext: int = 0):
+        """Baca data tanpa buffer (fallback untuk firmware yang menolak CMD_PREPARE_BUFFER).
+
+        Format respons: 4 byte ukuran total diikuti payload. Ukuran divalidasi agar
+        data yang terpotong/berlebih tidak diproses sebagai record.
+        """
+        # Firmware X601 menerima CMD_ATTLOG_RRQ tanpa command string (seperti ReadAllGLogData).
+        response = self._send_command(command, b"", 1024)
+        if not response["status"]:
+            raise ZKProtocolError(
+                f"Mesin menolak pembacaan langsung (kode {response['code']})."
+            )
+
+        data = self._recv_chunk()
+        if not data:
+            raise ZKProtocolError("Mesin tidak mengirim data pada pembacaan langsung.")
+
+        offset, total_size = self._split_size_prefix(data)
+        payload = data[offset + 4 :]
+        if len(payload) < total_size:
+            payload += self._recv_raw(total_size - len(payload))
+        payload = payload[:total_size]
+        if len(payload) != total_size:
+            raise ZKProtocolError(
+                f"Data pembacaan langsung tidak lengkap "
+                f"({len(payload)}/{total_size} byte)."
+            )
+
+        try:
+            self._send_command(CMD_FREE_DATA)
+        except ZKError:
+            pass
+
+        return data[offset : offset + 4] + payload, 4 + total_size
+
+
 
     # ------------------------------------------------------------------ operasi
 
@@ -393,12 +587,15 @@ class ZKDevice:
             return []
 
         userdata, size = self.read_with_buffer(CMD_USERTEMP_RRQ, FCT_USER)
-        if size <= 4:
+        if size <= 4 or len(userdata) < 4:
             return []
 
         total_size = struct.unpack("I", userdata[:4])[0]
+        if total_size <= 0:
+            return []
+
         packet_size = total_size // self.users if self.users else 0
-        userdata = userdata[4:]
+        userdata = userdata[4 : 4 + total_size]
 
         users: list[dict] = []
         if packet_size == 28:
@@ -448,12 +645,15 @@ class ZKDevice:
             return []
 
         attendance_data, size = self.read_with_buffer(CMD_ATTLOG_RRQ)
-        if size < 4:
+        if size < 4 or len(attendance_data) < 4:
             return []
 
         total_size = struct.unpack("I", attendance_data[:4])[0]
+        if total_size <= 0:
+            return []
+
         record_size = total_size // self.records if self.records else 0
-        attendance_data = attendance_data[4:]
+        attendance_data = attendance_data[4 : 4 + total_size]
 
         records: list[dict] = []
         if record_size == 8:
@@ -491,7 +691,7 @@ class ZKDevice:
         if not response["status"]:
             raise ZKProtocolError(f"Mesin menolak pembacaan jam (kode {response['code']}).")
 
-        payload = self._data[8:12]
+        payload = self._data[:4]
         if len(payload) < 4:
             raise ZKProtocolError("Response jam mesin tidak lengkap.")
 
@@ -526,7 +726,10 @@ class ZKDevice:
         """Ubah timeout soket (mis. membaca event realtime tanpa menunggu lama)."""
         self.timeout = float(seconds)
         if self._sock is not None:
-            self._sock.settimeout(self.timeout)
+            try:
+                self._sock.settimeout(self.timeout)
+            except OSError:
+                pass
 
     def register_events(self, flag: int = EF_ATTLOG) -> bool:
         """Minta mesin mengirim event realtime (CMD_REG_EVENT). True bila di-ACK mesin."""
@@ -632,6 +835,8 @@ class ZKDevice:
 
 
 __all__ = [
+    "CHUNK_CANDIDATES",
+    "CHUNK_READ_TIMEOUT",
     "ZKDevice",
     "ZKError",
     "ZKConnectionError",

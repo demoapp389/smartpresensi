@@ -112,6 +112,7 @@ Mode CLI (dipakai Laravel sebagai fallback). Flag `--device=<key>` memilih mesin
 ```sh
 python3 zkconnector.py --test         --ip=100.50.25.67 --port=4370
 python3 zkconnector.py --probe        --device=gerbang
+python3 zkconnector.py --diagnose     --device=gerbang
 python3 zkconnector.py --sync-students --device=kelas-a
 python3 zkconnector.py --sync-logs    --device=gerbang
 python3 zkconnector.py --sync-logs    --device=gerbang --since="2026-10-23 07:00:00"
@@ -122,6 +123,12 @@ python3 zkconnector.py --scan-lan
 `--since` memfilter log yang dikembalikan ke Laravel (bukan mengurangi jumlah data yang
 dibaca dari mesin). `--sync-time` selalu memakai jam host saat ini; target waktu eksplisit
 tidak didukung agar jam mesin tidak bisa dimundurkan lewat CLI.
+
+`--diagnose` menguji TCP, kapasitas, jam, dan setiap ukuran chunk buffered
+(`65472`, `32768`, `16384`, `8192`, `4096`, `1024`) lalu mencetak rekomendasi. Dipakai saat
+log connector berisi `Gagal membaca buffer pada offset 0 ukuran 65472`. Pembacaan normal
+sudah otomatis memakai chunk adaptif + fallback non-buffered, jadi `--diagnose` hanya untuk
+memastikan ukuran mana yang diterima firmware.
 
 Semua mode CLI mencetak satu objek JSON ke stdout (dibaca `FingerprintConnectorService`).
 

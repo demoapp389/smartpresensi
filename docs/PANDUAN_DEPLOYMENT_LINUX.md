@@ -631,7 +631,56 @@ sudo -u www-data php8.3 artisan up
 | Mesin tidak bisa dihubungi | Cek IP/port/comm key; coba `python3 zkconnector.py --test --ip=... --port=4370`; pastikan tidak ada firewall yang memblokir. |
 | Tombol Tes Koneksi error "Connector tidak dapat dijalankan" | `proc_open` dinonaktifkan di php.ini FPM, atau `python3` tidak ada di PATH layanan. Set `CONNECTOR_PYTHON_BIN=/usr/bin/python3`. |
 
-### 11.3 Diagnostik cepat
+### 11.3 "Gagal membaca buffer pada offset 0 ukuran 65472"
+
+Gejala di `journalctl -u solutionx601-connector`:
+
+```text
+[05:40:34] [LAN] default offline: Gagal membaca buffer pada offset 0 ukuran 65472 (kode respons ...)
+```
+
+Angka `65472` adalah `TCP_MAX_CHUNK` (64 KB). Artinya mesin menolak pembacaan buffer
+dengan chunk 64 KB. Connector versi terbaru otomatis mencoba chunk yang lebih kecil
+(`32768`, `16384`, `8192`, `4096`, `1024`) lalu fallback ke pembacaan non-buffered.
+Jalankan diagnostik untuk melihat ukuran mana yang diterima mesin:
+
+```bash
+cd /var/www/smartpresensi
+sudo -u www-data python3 connector/zkconnector.py --diagnose --device=default
+```
+
+Contoh keluaran yang perlu diperhatikan:
+
+```json
+{"device":"192.168.1.20:4370","tcp_reachable":true,"connected":true,
+ "records":812,"chunk_tests":[
+   {"chunk_size":65472,"success":false,"error":"..."},
+   {"chunk_size":32768,"success":true,"elapsed_seconds":0.4}
+ ],
+ "recommendation":"Chunk 32768 byte berhasil. ..."}
+```
+
+Bila semua chunk gagal:
+
+1. Pastikan hanya satu proses yang membuka port mesin:
+
+   ```bash
+   sudo ss -tnp | grep 4370
+   ```
+
+   Heartbeat `fingerprint:health-check` sekarang membaca status connector
+   (`/api/status`) dan tidak lagi membuka koneksi TCP mentah. Bila masih ada dua
+   koneksi `ESTABLISHED`, hentikan Tes Koneksi/sinkronisasi manual yang berjalan
+   bersamaan.
+2. Cek kapasitas dan jam mesin: `--probe` lalu `--diagnose`.
+3. Bila firmware tetap menolak pembacaan buffered, gunakan jalur **Web SOAP**
+   (port 80 mesin) dengan mengubah `ingest_driver` perangkat menjadi `soap`.
+
+`BrokenPipeError: [Errno 32] Broken pipe` pada log connector bukan penyebab mesin
+offline: itu terjadi saat dashboard menutup koneksi ke Local API sebelum respons
+selesai dikirim. Versi terbaru menanganinya tanpa menghentikan service.
+
+### 11.4 Diagnostik cepat
 
 ```bash
 sudo systemctl status nginx php8.3-fpm smartpresensi-worker solutionx601-connector
@@ -640,4 +689,5 @@ sudo journalctl -u solutionx601-connector -n 100
 sudo -u www-data php8.3 artisan schedule:list
 sudo -u www-data php8.3 artisan app:preflight
 sudo -u www-data python3 connector/zkconnector.py --test --ip=<IP_MESIN> --port=4370
+sudo -u www-data python3 connector/zkconnector.py --diagnose --device=default
 ```
