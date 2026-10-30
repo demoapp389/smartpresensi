@@ -526,10 +526,16 @@ class Connector:
                     pass
 
         if result["records"] <= 0:
-            result["recommendation"] = (
-                "Mesin tidak memiliki log absensi, uji ukuran chunk dilewati. "
-                "Lakukan uji ulang setelah ada scan."
-            )
+            if result["error"]:
+                result["recommendation"] = (
+                    f"Kapasitas mesin tidak terbaca ({result['error']}). "
+                    "Periksa comm key dan pastikan tidak ada sesi lain ke mesin."
+                )
+            else:
+                result["recommendation"] = (
+                    "Mesin tidak memiliki log absensi, uji ukuran chunk dilewati. "
+                    "Lakukan uji ulang setelah ada scan."
+                )
             return result
 
         for chunk_size in CHUNK_CANDIDATES:
