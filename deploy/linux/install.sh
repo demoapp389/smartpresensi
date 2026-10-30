@@ -219,7 +219,7 @@ case "$SCHEDULER" in
 esac
 
 APP_DIR=$(cd -- "$APP_DIR" && pwd) || die "Folder aplikasi tidak ditemukan: $APP_DIR"
-[ -f "$APP_DIR/artisan" ] || die "Bukan folder aplikasi Laravel (artisan tidak ada): $APP_DIR"
+[ -f "$APP_DIR/artisan" ] || die "Folder $APP_DIR belum berisi aplikasi Laravel (artisan tidak ada). Clone atau unggah source lebih dulu, misalnya: sudo git clone https://github.com/demoapp389/smartpresensi.git $APP_DIR"
 
 # --------------------------------------------------------------------------- #
 # Deteksi lingkungan

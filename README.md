@@ -35,6 +35,13 @@ sudo bash deploy/linux/install.sh \
   --admin-password "KataSandiKuat123"
 ```
 
+Installer harus dijalankan **dari dalam folder aplikasi** (folder yang berisi `artisan` dan
+`deploy/linux/`). Repo ini tidak menyertakan `vendor/` dan `public/build/`, jadi server butuh
+akses Packagist dan npm registry saat instalasi. Bila server tanpa internet, unggah `vendor/`
+dan `public/build/` hasil build di Linux lain, lalu tambahkan `--skip-composer --skip-build`.
+Rincian langkah pengambilan source (git clone / unggah ZIP) ada di
+[`docs/PANDUAN_DEPLOYMENT_LINUX.md`](docs/PANDUAN_DEPLOYMENT_LINUX.md) bagian 3.1.
+
 Skrip `deploy/linux/install.sh` bersifat idempoten: menyiapkan `.env`, database, aset,
 migrasi, akun admin, site Nginx, unit systemd (`smartpresensi-worker`,
 `solutionx601-connector`), dan scheduler. Periksa prasyarat tanpa mengubah apa pun:

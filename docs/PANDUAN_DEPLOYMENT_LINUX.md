@@ -75,6 +75,63 @@ php -m | grep -E 'pdo_mysql|mbstring|xml|curl|zip|bcmath|gd|intl|pcntl|posix'
 Repositori menyertakan skrip pemasangan **idempoten** yang menyiapkan `.env`, database,
 aset, migrasi, akun admin, Nginx, unit systemd, dan cron scheduler.
 
+### 3.1 Ambil source aplikasi ke server
+
+Installer dijalankan **dari dalam folder aplikasi**, jadi source harus berada di server lebih
+dulu. Contoh lokasi yang dipakai panduan ini: `/var/www/smartpresensi`.
+
+**Cara 1 - clone dari Git (server punya internet):**
+
+```bash
+sudo mkdir -p /var/www
+sudo git clone https://github.com/demoapp389/smartpresensi.git /var/www/smartpresensi
+```
+
+**Cara 2 - unggah arsip dari komputer lain (server tanpa akses Git):**
+
+```bash
+# dari komputer Anda
+scp smartpresensi.zip admin@192.168.1.10:/tmp/
+
+# di server
+sudo mkdir -p /var/www/smartpresensi
+sudo unzip -q /tmp/smartpresensi.zip -d /tmp/smartpresensi-src
+sudo cp -a /tmp/smartpresensi-src/. /var/www/smartpresensi/
+```
+
+> Pastikan yang diekstrak adalah isi folder aplikasi (`artisan`, `composer.json`, `public/`,
+> `deploy/`), bukan folder pembungkus tambahan.
+
+**Server tanpa internet:** `composer install` dan `npm ci` memerlukan akses ke Packagist dan
+npm registry. Bila server tertutup, siapkan dependensi di komputer Linux lain dengan PHP 8.3
+dan Node 22, lalu unggah hasilnya:
+
+```bash
+# di komputer build
+composer install --no-dev --optimize-autoloader
+npm ci && npm run build
+
+# unggah vendor/ dan public/build/ ke /var/www/smartpresensi, lalu di server:
+cd /var/www/smartpresensi
+sudo bash deploy/linux/install.sh --skip-composer --skip-build \
+  --app-url "http://192.168.1.10" \
+  --admin-name "Administrator Sekolah" \
+  --admin-email "admin@sekolah.sch.id" \
+  --admin-password "KataSandiKuat123"
+```
+
+Verifikasi sebelum melanjutkan:
+
+```bash
+cd /var/www/smartpresensi
+ls artisan composer.json deploy/linux/install.sh
+```
+
+> Jangan menyalin `vendor/`, `node_modules/`, atau `public/build/` dari instalasi Windows.
+> Bangun ulang di Linux agar ekstensi PHP dan aset cocok.
+
+### 3.2 Jalankan installer
+
 ```bash
 cd /var/www/smartpresensi
 sudo bash deploy/linux/install.sh \
@@ -93,7 +150,7 @@ sudo bash deploy/linux/install.sh --check
 > Bila folder `deploy/linux/` tidak ada (misalnya aplikasi disalin dari bundle Windows yang tidak
 > menyertakan folder `deploy/`), gunakan langkah **instalasi manual** di bagian 4.
 
-### 3.1 Opsi penting
+### 3.3 Opsi penting
 
 | Opsi | Default | Keterangan |
 | --- | --- | --- |
@@ -112,7 +169,7 @@ sudo bash deploy/linux/install.sh --check
 | `--overwrite-env` | mati | Buat ulang `.env` dari `.env.example` (berisiko) |
 | `--check` | mati | Hanya periksa prasyarat lalu keluar |
 
-### 3.2 Apa yang dilakukan skrip
+### 3.4 Apa yang dilakukan skrip
 
 1. Memeriksa root, PHP 8.3 + ekstensi, Composer, Node/npm, Python 3, Nginx, MySQL.
 2. Membuat `.env` dari `.env.example` **hanya bila belum ada** (mengisi `APP_URL`,

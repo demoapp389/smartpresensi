@@ -31,9 +31,23 @@ Terima berkas -> Jalankan start-setup.ps1 -> Ikuti wizard -> Login -> Siap dipak
 **Alur singkat (Linux):**
 
 ```text
-Pasang PHP/MySQL/Nginx -> Letakkan aplikasi -> install.sh (atau manual)
--> Nginx/PHP-FPM -> Worker + scheduler + connector -> Uji
+Pasang PHP/MySQL/Nginx -> Ambil source ke server (git clone / unggah ZIP)
+-> install.sh (atau manual) -> Nginx/PHP-FPM -> Worker + scheduler + connector -> Uji
 ```
+
+Contoh mengambil source dan menjalankan installer:
+
+```bash
+sudo git clone https://github.com/demoapp389/smartpresensi.git /var/www/smartpresensi
+cd /var/www/smartpresensi
+sudo bash deploy/linux/install.sh --app-url "http://192.168.1.10" \
+  --admin-name "Administrator Sekolah" --admin-email "admin@sekolah.sch.id" \
+  --admin-password "KataSandiKuat123"
+```
+
+> Installer harus dijalankan dari dalam folder aplikasi. Bila server tanpa internet, unggah
+> `vendor/` dan `public/build/` hasil build Linux lalu tambahkan `--skip-composer --skip-build`
+> (lihat panduan Linux bagian 3.1).
 
 ---
 
