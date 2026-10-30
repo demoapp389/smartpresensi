@@ -1,0 +1,64 @@
+*.log
+.DS_Store
+.env
+.env.backup
+.env.production
+.phpactor.json
+.phpunit.result.cache
+/.codex
+/.cursor/
+/.idea
+/.nova
+/.phpunit.cache
+/.vscode
+/.zed
+/auth.json
+/node_modules
+/public/build
+/public/fonts-manifest.dev.json
+/public/hot
+/public/storage
+/storage/*.key
+/storage/pail
+/storage/t.txt
+/vendor
+/dist
+
+# Template frontend lama yang tidak dipakai
+/gentelella-master/
+/deploy/com/*.dll
+/deploy/com/*.zip
+
+# Konfigurasi lokal per-PC berisi token rahasia (dibuat oleh setup dari template)
+/service/supervisor_config.ini
+__pycache__/
+*.pyc
+
+# Runtime portable yang diunduh on-demand oleh scripts\ (PHP/MySQL/Python)
+/runtime/
+# State/laporan lokal bootstrap
+/scripts/state/
+connector/python_path.txt
+
+# Artefak build bootstrap setup assistant (Go)
+/deploy/setup-assistant/setup-assistant.exe
+/deploy/setup-assistant/setup-assistant
+/deploy/setup-assistant/web/dist/
+
+# Artefak binari Windows (dibangun ulang dari sumber saat merilis bundle)
+*.exe
+*.dll
+
+# Cache hasil generate (dibuat ulang oleh composer/artisan)
+/bootstrap/cache/*.php
+
+# Konfigurasi & instruksi lokal pengembang/agen AI (tidak diperlukan saat instalasi)
+/.agents/
+AGENTS.md
+CLAUDE.md
+SKILL.md
+boost.json
+_ide_helper.php
+Homestead.json
+Homestead.yaml
+Thumbs.db

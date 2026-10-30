@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Persiapan SmartPresensi</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel2: #273449;
+    --line: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --green: #22c55e;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --blue: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 28px 20px 80px; }
+  header h1 { margin: 0 0 4px; font-size: 24px; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+  .banner {
+    margin-top: 18px; padding: 14px 16px; border-radius: 10px;
+    background: var(--panel); border: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .banner .big { font-size: 16px; font-weight: 600; }
+  .banner.ok .big { color: var(--green); }
+  .banner.bad .big { color: var(--amber); }
+  .cards { margin-top: 18px; display: grid; gap: 12px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px;
+  }
+  .card.ok { border-color: rgba(34,197,94,.45); }
+  .card .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .card h3 { margin: 0; font-size: 15px; }
+  .card .desc { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+  .badge {
+    font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  }
+  .badge.ok { background: rgba(34,197,94,.15); color: var(--green); }
+  .badge.no { background: rgba(239,68,68,.15); color: var(--red); }
+  .detail { margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .detail.ok { color: var(--green); }
+  .actions { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  button, .btn {
+    font: inherit; font-size: 13px; cursor: pointer; border-radius: 8px; padding: 8px 14px;
+    border: 1px solid var(--line); background: var(--panel2); color: var(--text); text-decoration: none;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  button:hover, .btn:hover { border-color: var(--muted); }
+  button.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background: transparent; }
+  label.file { position: relative; overflow: hidden; display: inline-flex; }
+  label.file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .progress { margin-top: 12px; display: none; }
+  .progress.show { display: block; }
+  .bar { height: 8px; background: var(--panel2); border-radius: 999px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .3s; }
+  .bar.indet > i { width: 35% !important; animation: slide 1.1s infinite ease-in-out; }
+  @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+  .pmsg { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  footer.actions { margin-top: 22px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .note { margin-top: 26px; font-size: 12px; color: var(--muted); }
+  .done-msg { display: none; margin-top: 18px; padding: 14px 16px; border-radius: 10px; background: rgba(34,197,94,.12); border: 1px solid rgba(34,197,94,.4); color: var(--green); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Persiapan SmartPresensi</h1>
+    <p>Wizard ini menyiapkan komponen yang kurang ke folder <code>runtime\</code> agar aplikasi bisa dijalankan.</p>
+  </header>
+
+  <div class="banner" id="banner">
+    <div class="big" id="bannerText">Memeriksa prasyarat...</div>
+    <div style="display:flex;gap:8px">
+      <button class="ghost" onclick="refresh(true)">Periksa ulang</button>
+      <button class="primary" id="startBtn" onclick="finish()" disabled>Jalankan SmartPresensi</button>
+    </div>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="done-msg" id="doneMsg">
+    Persiapan selesai. Silakan kembali ke jendela launcher; aplikasi akan dijalankan otomatis.
+  </div>
+
+  <div class="note">
+    Tips: tombol <b>Unduh otomatis</b> mengambil file resmi dari internet. Bila PC ini tanpa internet,
+    unduh manual di PC lain lalu gunakan <b>Impor file</b> (pilih file ZIP/EXE yang sesuai).
+  </div>
+</div>
+
+<script>
+const POLL_MS = 1000;
+
+function fmtSize(mb) { return mb ? ("~" + mb + " MB") : ""; }
+
+async function refresh(manual) {
+  try {
+    const res = await fetch('/api/status', { cache: 'no-store' });
+    const data = await res.json();
+    render(data);
+    if (manual) { /* noop */ }
+  } catch (e) {
+    document.getElementById('bannerText').textContent = 'Tidak dapat menghubungi server wizard.';
+  }
+}
+
+function render(data) {
+  const banner = document.getElementById('banner');
+  const text = document.getElementById('bannerText');
+  const need = data.components.filter(c => !c.ok && !c.optional).length;
+  banner.classList.toggle('ok', data.ready);
+  banner.classList.toggle('bad', !data.ready);
+  if (data.ready) {
+    text.textContent = 'Semua komponen siap. Aplikasi dapat dijalankan.';
+  } else {
+    text.textContent = need > 0
+      ? (need + ' komponen utama masih perlu disiapkan.')
+      : 'Komponen opsional tersisa, aplikasi tetap dapat dijalankan.';
+  }
+  document.getElementById('startBtn').disabled = !data.ready;
+
+  const cards = document.getElementById('cards');
+  cards.innerHTML = '';
+  for (const c of data.components) {
+    cards.appendChild(renderCard(c));
+  }
+}
+
+function renderCard(c) {
+  const el = document.createElement('div');
+  el.className = 'card' + (c.ok ? ' ok' : '');
+  el.id = 'card-' + c.id;
+
+  const badge = c.ok
+    ? '<span class="badge ok">SIAP</span>'
+    : '<span class="badge no">' + (c.optional ? 'OPSIONAL' : 'PERLU') + '</span>';
+
+  let actions = '';
+  if (!c.ok) {
+    if (c.kind === 'external') {
+      actions = '<a class="btn" href="' + c.url + '" target="_blank" rel="noopener">Buka situs unduh</a>';
+    } else {
+      actions =
+        '<button class="primary" onclick="startDownload(\'' + c.id + '\')">Unduh otomatis ' + fmtSize(c.sizeMb) + '</button>' +
+        '<label class="file btn">Impor file...<input type="file" onchange="upload(\'' + c.id + '\', this)"></label>';
+    }
+  }
+
+  el.innerHTML =
+    '<div class="top"><div><h3>' + c.name + '</h3><p class="desc">' + (c.description || '') + '</p></div>' + badge + '</div>' +
+    '<div class="detail' + (c.ok ? ' ok' : '') + '">' + (c.detail || '') + '</div>' +
+    '<div class="actions">' + actions + '</div>' +
+    '<div class="progress" id="prog-' + c.id + '"><div class="bar"><i></i></div><div class="pmsg"></div></div>';
+  return el;
+}
+
+function setProgress(id, pct, msg, indeterminate) {
+  const wrap = document.getElementById('prog-' + id);
+  if (!wrap) { return; }
+  wrap.classList.add('show');
+  const bar = wrap.querySelector('.bar');
+  const fill = bar.querySelector('i');
+  bar.classList.toggle('indet', !!indeterminate);
+  if (!indeterminate) { fill.style.width = Math.max(0, Math.min(100, pct)) + '%'; }
+  wrap.querySelector('.pmsg').textContent = msg || '';
+}
+
+function clearProgress(id) {
+  const wrap = document.getElementById('prog-' + id);
+  if (wrap) { wrap.classList.remove('show'); }
+}
+
+async function startDownload(id) {
+  setProgress(id, 0, 'Menyiapkan unduhan...', true);
+  try {
+    const res = await fetch('/api/fetch?id=' + encodeURIComponent(id), { method: 'POST' });
+    const data = await res.json();
+    if (!data.started) {
+      setProgress(id, 0, 'Tidak dapat memulai unduhan.');
+      return;
+    }
+    pollProgress(id);
+  } catch (e) {
+    setProgress(id, 0, 'Gagal memulai: ' + e.message);
+  }
+}
+
+function pollProgress(id) {
+  const timer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/progress?id=' + encodeURIComponent(id), { cache: 'no-store' });
+      const p = await res.json();
+      if (p.status === 'running') {
+        setProgress(id, p.percent || 0, p.message || 'Bekerja...', (p.percent || 0) === 0);
+      } else if (p.status === 'done') {
+        clearInterval(timer);
+        setProgress(id, 100, p.message || 'Selesai.');
+        await refresh();
+      } else if (p.status === 'error') {
+        clearInterval(timer);
+        setProgress(id, 0, 'Gagal: ' + (p.message || 'kesalahan tidak diketahui'));
+      } else {
+        setProgress(id, 0, p.message || 'Menunggu...', true);
+      }
+    } catch (e) {
+      clearInterval(timer);
+      setProgress(id, 0, 'Koneksi terputus.');
+    }
+  }, POLL_MS);
+}
+
+async function upload(id, input) {
+  const file = input.files && input.files[0];
+  if (!file) { return; }
+  setProgress(id, 0, 'Mengunggah ' + file.name + '...', true);
+  try {
+    const res = await fetch('/api/upload?id=' + encodeURIComponent(id), { method: 'POST', body: file });
+    const data = await res.json();
+    if (!data.ok) { setProgress(id, 0, 'Unggah gagal.'); return; }
+    setProgress(id, 0, 'File diterima. Mengekstrak...', true);
+    startDownload(id);
+  } catch (e) {
+    setProgress(id, 0, 'Unggah gagal: ' + e.message);
+  }
+}
+
+async function finish() {
+  try { await fetch('/api/finish', { method: 'POST' }); } catch (e) { /* ignore */ }
+  document.getElementById('doneMsg').style.display = 'block';
+  document.getElementById('bannerText').textContent = 'Selesai.';
+}
+
+refresh();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>

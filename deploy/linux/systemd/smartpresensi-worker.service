@@ -1,0 +1,18 @@
+[Unit]
+Description=SmartPresensi Laravel Queue Worker
+Documentation=file:///var/www/smartpresensi/docs/PANDUAN_DEPLOYMENT_LINUX.md
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/smartpresensi
+ExecStart=/usr/bin/php8.3 artisan queue:work --queue=default,validations,long-running --tries=3 --timeout=3660 --sleep=3
+Restart=always
+RestartSec=5
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

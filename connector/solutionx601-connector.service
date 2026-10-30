@@ -1,0 +1,19 @@
+[Unit]
+Description=SmartPresensi Solution X601 Fingerprint Connector
+Documentation=file:///opt/smartpresensi/connector/INSTALL.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/opt/smartpresensi/connector
+ExecStart=/usr/bin/python3 /opt/smartpresensi/connector/zkconnector.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+User=smartpresensi
+Group=smartpresensi
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+[Unit]
+Description=SmartPresensi Solution X601 Fingerprint Connector
+Documentation=file:///var/www/smartpresensi/docs/PANDUAN_DEPLOYMENT_LINUX.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/smartpresensi/connector
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /var/www/smartpresensi/connector/zkconnector.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+# ---------------------------------------------------------------------------
+# SmartPresensi - konfigurasi Supervisor (Windows Service)
+# Nilai __*__ diganti otomatis oleh setup.ps1 saat instalasi.
+# ---------------------------------------------------------------------------
+
+project_root=__APP_DIR__
+php_path=__PHP_DIR__\php.exe
+connector_relative_path=connector\SolutionX601Connector.exe
+connector_arguments=
+local_api_port=4372
+auth_token=__SUPERVISOR_TOKEN__
+heartbeat_interval_sec=5
+
+# Antrean yang diproses queue worker (harus mencakup semua queue yang dipakai job)
+queue_list=default,validations,long-running
+queue_timeout_sec=3600
+
+# Startup: menunggu MySQL siap sebelum menjalankan queue worker
+mysql_port=__DB_PORT__
+startup_delay_sec=15
+mysql_wait_max_sec=120
+
+# Web server dikelola oleh Apache (service terpisah), bukan oleh supervisor.
+web_server_enabled=false
+web_server_port=__WEB_PORT__

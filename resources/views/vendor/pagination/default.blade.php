@@ -1,0 +1,2 @@
+@include('vendor.pagination.tailwind')
+

@@ -1,0 +1,395 @@
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../views/**/*.blade.php';
+
+@import './datatables.css';
+
+@theme {
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-admin: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+:root {
+    --sidebar-bg: #1a2332;
+    --sidebar-text: #7b8fa3;
+    --sidebar-text-hover: #c5d0dc;
+    --sidebar-text-active: #ffffff;
+    --sidebar-hover: rgba(255, 255, 255, 0.04);
+    --sidebar-active: rgba(26, 187, 156, 0.08);
+    --sidebar-border: rgba(255, 255, 255, 0.06);
+    --sidebar-w: 252px;
+
+    --primary: #1abb9c;
+    --primary-dark: #169f85;
+    --primary-accessible: #087f69;
+    --primary-soft: rgba(26, 187, 156, 0.08);
+
+    --body-bg: #f5f7fb;
+    --surface: #ffffff;
+    --surface-secondary: #f9fafb;
+    --topbar-bg: rgba(255, 255, 255, 0.88);
+    --border: #e6e7eb;
+    --border-subtle: #eff0f3;
+    --text: #1e2633;
+    --text-secondary: #626d7d;
+    --text-muted: #7e8896;
+
+    --success: #2fb344;
+    --info: #066fd1;
+    --warning: #f59f00;
+    --danger: #d63939;
+
+    --radius-sm: 4px;
+    --radius: 6px;
+    --radius-lg: 8px;
+    --shadow: rgba(30, 38, 51, 0.04) 0 2px 4px 0;
+    --font-admin: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+html[data-theme="dark"] {
+    --body-bg: #0f1623;
+    --surface: #1a2332;
+    --surface-secondary: #141d2b;
+    --topbar-bg: rgba(20, 29, 43, 0.88);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-subtle: rgba(255, 255, 255, 0.05);
+    --text: #e6ebf2;
+    --text-secondary: #b3bccb;
+    --text-muted: #8a93a3;
+    --primary-soft: rgba(26, 187, 156, 0.14);
+    --shadow: rgba(0, 0, 0, 0.4) 0 2px 4px 0;
+}
+
+@media (min-width: 1024px) {
+    body.sidebar-rail {
+        --sidebar-w: 64px;
+    }
+    body.sidebar-rail .rail-hide {
+        display: none !important;
+    }
+    body.sidebar-rail .rail-show {
+        display: flex !important;
+    }
+    body.sidebar-rail .rail-center {
+        justify-content: center !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+
+    /* Rail mode: kategori disembunyikan dan submenu digantikan flyout
+       yang muncul saat ikon grup diklik (lihat sidebar-group). */
+    body.sidebar-rail .nav-sub {
+        display: none !important;
+    }
+    body.sidebar-rail .nav-link {
+        justify-content: center !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+}
+
+/* ────────────────────────────────
+   SIDEBAR SCROLLBAR
+   Scrollbar disembunyikan saat sidebar diam, dan baru muncul ketika sedang
+   discroll (kelas .is-scrolling dipasang oleh JS), ketika kursor berada di
+   area sidebar, atau saat keyboard fokus ke item di luar layar.
+   ──────────────────────────────── */
+.sidebar-nav {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 200ms ease;
+}
+.sidebar-nav.is-scrolling,
+.sidebar-nav:hover,
+.sidebar-nav:focus-within {
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+.sidebar-nav::-webkit-scrollbar {
+    width: 4px;
+}
+.sidebar-nav::-webkit-scrollbar-track {
+    background: transparent;
+}
+.sidebar-nav::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 4px;
+    transition: background-color 200ms ease;
+}
+.sidebar-nav.is-scrolling::-webkit-scrollbar-thumb,
+.sidebar-nav:hover::-webkit-scrollbar-thumb,
+.sidebar-nav:focus-within::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+}
+.sidebar-nav.is-scrolling::-webkit-scrollbar-thumb:hover,
+.sidebar-nav:hover::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* ────────────────────────────────
+   AUTO-HIDE SCROLLBAR GENERIK
+   Thumb transparan secara bawaan dan hanya tampil saat elemen sedang
+   digulir (kelas .is-scrolling dipasang oleh JS). Dipakai mis. panel
+   Live Service Diagnostic Logs. Modifier .on-dark untuk latar gelap.
+   ──────────────────────────────── */
+[data-autohide-scrollbar] {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 200ms ease;
+}
+[data-autohide-scrollbar].is-scrolling {
+    scrollbar-color: var(--scrollbar-thumb, rgba(100, 116, 139, 0.45)) transparent;
+}
+[data-autohide-scrollbar]::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+[data-autohide-scrollbar]::-webkit-scrollbar-track {
+    background: transparent;
+}
+[data-autohide-scrollbar]::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 6px;
+    transition: background-color 200ms ease;
+}
+[data-autohide-scrollbar].is-scrolling::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb, rgba(100, 116, 139, 0.45));
+}
+[data-autohide-scrollbar].on-dark {
+    --scrollbar-thumb: rgba(255, 255, 255, 0.22);
+}
+
+/* ────────────────────────────────
+   SIDEBAR SUBMENU (pola .nav-tree Gentelella)
+   Lipatan dibuka/tutup memakai teknik grid-template-rows 0fr → 1fr agar
+   transisi mulus tanpa menghitung tinggi lewat JS.
+   ──────────────────────────────── */
+.nav-tree .nav-chev {
+    transition: transform 200ms cubic-bezier(0.2, 0, 0, 1), opacity 120ms;
+}
+.nav-tree.open > .nav-toggle .nav-chev {
+    transform: rotate(90deg);
+    opacity: 1;
+}
+.nav-toggle:hover .nav-chev {
+    opacity: 0.9;
+}
+
+/* Tooltip label untuk rail mode — diambil dari teks .nav-text lewat data-rail-label. */
+@media (min-width: 1024px) {
+    body.sidebar-rail .nav-link[data-rail-label]::after {
+        content: attr(data-rail-label);
+        position: absolute;
+        left: 100%;
+        top: 50%;
+        transform: translateY(-50%) translateX(-4px);
+        margin-left: 8px;
+        padding: 4px 10px;
+        border-radius: 6px;
+        background: #111827;
+        color: #fff;
+        font-size: 12px;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms, transform 120ms;
+        z-index: 60;
+    }
+    body.sidebar-rail .nav-link[data-rail-label]:hover::after,
+    body.sidebar-rail .nav-link[data-rail-label]:focus-visible::after {
+        opacity: 1;
+        transform: translateY(-50%) translateX(0);
+    }
+}
+
+/* ────────────────────────────────
+   TABS (pola .tabs-pill Gentelella — general_elements.html)
+   Dipakai untuk navigasi tab di header card tabel.
+   ──────────────────────────────── */
+@layer components {
+    .tabs-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        padding: 3px;
+        background: var(--surface-secondary);
+        border-radius: var(--radius);
+    }
+    .tabs-pill .tab {
+        padding: 6px 14px;
+        border: none;
+        background: transparent;
+        font: inherit;
+        font-size: 12.5px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        border-radius: calc(var(--radius) - 2px);
+        cursor: pointer;
+        white-space: nowrap;
+        text-decoration: none;
+        transition: background 100ms, color 100ms;
+    }
+    .tabs-pill .tab:hover {
+        color: var(--text);
+    }
+    .tabs-pill .tab.active {
+        background: var(--surface);
+        color: var(--text);
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    }
+}
+
+/* ────────────────────────────────
+   MOBILE RESPONSIVENESS OVERRIDES
+   Fokus perbaikan tampilan Mobile (< 640px):
+   - Tabs (.tabs-pill, tab navigasi, segmented tabs)
+   - Tombol-tombol (card-options, card-actions, header buttons, bulk actions)
+   - Filter card pencarian standalone
+   ──────────────────────────────── */
+@media (max-width: 640px) {
+    /* 1. TABS: Scroll horizontal lancar tanpa scrollbar desktop yang kaku */
+    .tabs-pill {
+        display: flex !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding: 4px !important;
+        gap: 4px !important;
+        box-sizing: border-box;
+    }
+    .tabs-pill::-webkit-scrollbar {
+        display: none;
+    }
+    .tabs-pill .tab {
+        flex: 0 0 auto !important;
+        white-space: nowrap !important;
+        padding: 7px 14px !important;
+        font-size: 12px !important;
+        min-height: 36px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center;
+    }
+
+    /* Container tablist / segmented tabs umum */
+    [role="tablist"] {
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+    [role="tablist"]::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* 2. TOMBOL AKSI & CARD OPTIONS */
+    .card-options,
+    .card-actions {
+        width: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 8px !important;
+    }
+    .card-options > *,
+    .card-actions > * {
+        width: 100% !important;
+        min-height: 38px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center;
+    }
+
+    /* Header card dengan kelompok tombol di sisi kanan */
+    section > .flex.flex-wrap.items-center.justify-between.gap-3:first-child > .flex.flex-wrap.items-center.gap-2,
+    section > .flex.flex-wrap.items-center.justify-between.gap-3:first-child > .flex.flex-wrap.items-center.gap-3,
+    .card-header > .flex.flex-wrap.items-center.gap-2 {
+        width: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 8px !important;
+    }
+    section > .flex.flex-wrap.items-center.justify-between.gap-3:first-child > .flex.flex-wrap.items-center.gap-2 > *,
+    section > .flex.flex-wrap.items-center.justify-between.gap-3:first-child > .flex.flex-wrap.items-center.gap-3 > *,
+    .card-header > .flex.flex-wrap.items-center.gap-2 > * {
+        width: 100% !important;
+        min-height: 38px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center;
+    }
+
+    /* Tombol Aksi Halaman di Page Header (page-actions) */
+    .flex.flex-wrap.items-center.justify-end.gap-x-3.gap-y-1\.5 > .flex.items-center.gap-2.flex-wrap {
+        width: 100% !important;
+        flex-direction: column !important;
+        gap: 8px !important;
+    }
+    .flex.flex-wrap.items-center.justify-end.gap-x-3.gap-y-1\.5 > .flex.items-center.gap-2.flex-wrap > * {
+        width: 100% !important;
+        min-height: 38px !important;
+        justify-content: center !important;
+    }
+
+    /* 3. BARIS AKSI MASSAL (BULK ACTION BAR) */
+    [x-show="selected.length > 0"] {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 10px !important;
+        padding: 12px 14px !important;
+    }
+    [x-show="selected.length > 0"] > div {
+        width: 100% !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+    }
+    [x-show="selected.length > 0"] > div.flex-wrap {
+        flex-direction: column !important;
+        gap: 8px !important;
+    }
+    [x-show="selected.length > 0"] > div.flex-wrap > * {
+        width: 100% !important;
+    }
+    [x-show="selected.length > 0"] button,
+    [x-show="selected.length > 0"] form {
+        width: 100% !important;
+    }
+    [x-show="selected.length > 0"] form button {
+        width: 100% !important;
+        min-height: 38px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    /* 4. FILTER CARD STANDALONE (form di card header atau card filter) */
+    form.flex.flex-wrap.items-center.gap-2:not(.dt-layout-cell form) {
+        width: 100% !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+    }
+    form.flex.flex-wrap.items-center.gap-2:not(.dt-layout-cell form) > * {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-height: 38px !important;
+        box-sizing: border-box;
+    }
+    form.flex.flex-wrap.items-center.gap-2:not(.dt-layout-cell form) select {
+        height: 38px !important;
+    }
+    form.flex.flex-wrap.items-center.gap-2:not(.dt-layout-cell form) button,
+    form.flex.flex-wrap.items-center.gap-2:not(.dt-layout-cell form) a {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+    }
+}
+

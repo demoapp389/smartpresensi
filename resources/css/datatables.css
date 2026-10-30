@@ -1,0 +1,414 @@
+/* Gentelella DataTables (v2) UI overrides — adapted for our design system */
+
+@layer components {
+  /* Row selection — applied when any row checkbox is checked. */
+  table.has-selection tbody tr:has(input[type="checkbox"]:checked) {
+    background: var(--primary-soft);
+  }
+  .bulk-selection-count {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-inline-end: 12px;
+  }
+
+  /* DataTables wraps its rendered table in `.dt-container` and adds layout slots
+     `.dt-layout-row`, `.dt-search`, `.dt-info`, `.dt-paging`. */
+  .dt-container {
+    font-family: var(--font-admin);
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  /* Baris tabel: tanpa padding, dan hanya bagian ini yang boleh scroll horizontal.
+     Kalau tidak, tabel lebar ikut menarik `.dt-container` sehingga baris
+     pencarian dan pagination ikut tergeser keluar dari lebar card. */
+  .dt-layout-row.dt-layout-table {
+    padding: 0;
+    overflow-x: auto;
+  }
+  /* Baris toolbar (dropdown jumlah baris + pencarian) dan baris footer
+     (info + pagination): flex supaya keduanya rapi di tepi kiri/kanan card. */
+  .dt-layout-row:not(.dt-layout-table) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    gap: 8px;
+  }
+  .dt-layout-row + .dt-layout-row.dt-layout-table {
+    border-top: 1px solid var(--border-subtle);
+  }
+  .dt-layout-row.dt-layout-table + .dt-layout-row:not(.dt-layout-table) {
+    border-top: 1px solid var(--border-subtle);
+  }
+  /* Isi tiap sel sejajar horizontal (mis. length + paging), bukan menumpuk. */
+  .dt-layout-cell.dt-layout-end,
+  .dt-layout-cell.dt-layout-start {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  /* Search input */
+  .dt-search {
+    position: relative;
+    width: 220px;
+  }
+  .dt-search label {
+    display: none;
+  }
+  .dt-search input {
+    width: 100%;
+    height: 32px;
+    padding: 0 10px 0 32px;
+    background: var(--body-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 150ms, box-shadow 150ms;
+  }
+  .dt-search::before {
+    content: '';
+    position: absolute;
+    inset-inline-start: 9px;
+    top: 50%;
+    width: 14px;
+    height: 14px;
+    transform: translateY(-50%);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%237e8896' stroke-width='1.5'%3E%3Ccircle cx='7' cy='7' r='5'/%3E%3Cpath d='M11 11l3.5 3.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    pointer-events: none;
+  }
+
+  /* Length dropdown — label "Tampilkan" di kiri, select di kanan. */
+  .dt-length {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dt-length label {
+    margin: 0;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .dt-length select {
+    height: 32px;
+    padding: 0 36px 0 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    outline: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%237e8896' stroke-width='1.5'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 14px;
+    transition: border-color 150ms, box-shadow 150ms, background-color 150ms;
+    min-width: 40px;
+    width: auto;
+  }
+  .dt-length select:hover {
+    background: var(--surface-secondary);
+    border-color: var(--border);
+  }
+  .dt-length select:focus {
+    border-color: var(--primary-accessible);
+    box-shadow: 0 0 0 3px var(--primary-soft);
+    background: var(--surface);
+  }
+  .dt-search input:focus {
+    border-color: var(--primary-accessible);
+    box-shadow: 0 0 0 3px var(--primary-soft);
+  }
+
+  /* Info text (Showing 1–10 of 100) */
+  .dt-info {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: block;
+  }
+
+  /* Pagination */
+  .dt-paging {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+  .dt-paging .dt-paging-button {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 100ms, color 100ms, border-color 100ms;
+  }
+  .dt-paging .dt-paging-button:hover:not(.disabled):not(.current) {
+    background: var(--surface-secondary);
+    color: var(--text);
+  }
+  .dt-paging .dt-paging-button.current {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary-dark);
+  }
+  .dt-paging .dt-paging-button.disabled {
+    color: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+.dt-paging .ellipsis {
+    color: var(--text-muted);
+    padding: 0 4px;
+  }
+
+  /* Table sort indicators */
+  table.dataTable thead th {
+    position: relative;
+    user-select: none;
+    /* Garis pemisah di bawah header tabel (pola table.table th Gentelella) */
+    border-bottom: 1px solid var(--border);
+  }
+  table.dataTable thead th .dt-column-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  table.dataTable thead th.dt-orderable-asc,
+  table.dataTable thead th.dt-orderable-desc {
+    cursor: pointer;
+  }
+  table.dataTable thead th[data-orderable="false"],
+  table.dataTable thead th.dt-orderable-none {
+    cursor: default;
+  }
+  table.dataTable thead th.dt-orderable-none .dt-column-order {
+    display: none;
+  }
+
+  /* Header polos (gaya Gentelella): ikon chevron urutan disembunyikan.
+     Kolom tetap bisa diurutkan lewat klik pada header. */
+  table.dataTable thead th .dt-column-order {
+    display: none;
+  }
+
+  /* The order indicator */
+  .dt-column-order {
+    display: inline-block;
+    width: 10px;
+    height: 14px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 10px 14px;
+    border-radius: 3px;
+    opacity: 0.7;
+    transition: opacity 120ms, background-color 120ms;
+    /* Idle state: both chevrons muted. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14'%3E%3Cpath fill='%237e8896' d='M5 1L1 5h8z'/%3E%3Cpath fill='%237e8896' d='M5 13L1 9h8z'/%3E%3C/svg%3E");
+  }
+  table.dataTable thead th:hover .dt-column-order {
+    opacity: 1;
+  }
+
+  /* Active ascending */
+  table.dataTable thead th.dt-ordering-asc .dt-column-order {
+    opacity: 1;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14'%3E%3Cpath fill='%231abb9c' d='M5 1L1 5h8z'/%3E%3Cpath fill='%23d8dee5' d='M5 13L1 9h8z'/%3E%3C/svg%3E");
+  }
+  /* Active descending */
+  table.dataTable thead th.dt-ordering-desc .dt-column-order {
+    opacity: 1;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14'%3E%3Cpath fill='%23d8dee5' d='M5 1L1 5h8z'/%3E%3Cpath fill='%231abb9c' d='M5 13L1 9h8z'/%3E%3C/svg%3E");
+  }
+  /* Subtle bg + clear focus on the order span (it has tabindex=0) */
+  .dt-column-order:focus-visible {
+    outline: 2px solid var(--primary-accessible);
+    outline-offset: 2px;
+  }
+  /* Highlight active sort column header */
+  table.dataTable thead th.dt-ordering-asc .dt-column-title,
+  table.dataTable thead th.dt-ordering-desc .dt-column-title {
+    color: var(--text);
+  }
+
+  /* "No matches found" empty row */
+  table.dataTable .dt-empty {
+    text-align: center;
+    padding: 32px 16px;
+    color: var(--text-muted);
+  }
+
+  /* Processing indicator */
+  .dt-processing {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 24px;
+    box-shadow: var(--shadow);
+    z-index: 10;
+  }
+  .dt-processing::before {
+    content: '';
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    margin-right: 8px;
+    border: 2px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: dt-spin 1s linear infinite;
+  }
+  @keyframes dt-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* ────────────────────────────────
+     MOBILE LAYOUT OVERRIDES (DataTables v2)
+     Di layar kecil (<= 768px), ubah baris toolbar dan footer agar tidak
+     berantakan, input pencarian membentang penuh, dan filter form tersusun rapi.
+     ──────────────────────────────── */
+  @media (max-width: 768px) {
+    .dt-container {
+      width: 100%;
+      max-width: 100%;
+    }
+
+    /* Baris toolbar atas & footer bawah */
+    .dt-layout-row:not(.dt-layout-table) {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+      padding: 12px 14px;
+    }
+
+    /* Sel toolbar kiri (dropdown jumlah & form filter) dan kanan (pencarian) */
+    .dt-layout-cell.dt-layout-start,
+    .dt-layout-cell.dt-layout-end {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+
+    /* Kotak pencarian membentang penuh pada mobile */
+    .dt-search {
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+    .dt-search input {
+      width: 100% !important;
+      height: 38px;
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+
+    /* Dropdown jumlah data baris */
+    .dt-length {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .dt-length select {
+      height: 36px;
+      min-width: 72px;
+    }
+
+    /* Form filter yang dislotkan ke dalam DataTables toolbar */
+    .dt-layout-cell.dt-layout-start form {
+      width: 100% !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: stretch !important;
+      gap: 8px !important;
+    }
+    .dt-layout-cell.dt-layout-start form > * {
+      width: 100% !important;
+      max-width: 100% !important;
+      box-sizing: border-box;
+    }
+    .dt-layout-cell.dt-layout-start form select,
+    .dt-layout-cell.dt-layout-start form input {
+      height: 38px !important;
+      min-height: 38px !important;
+      font-size: 13px !important;
+      box-sizing: border-box;
+    }
+    .dt-layout-cell.dt-layout-start form .flex.h-8\.5 {
+      height: 38px !important;
+      min-height: 38px !important;
+      width: 100% !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      box-sizing: border-box;
+    }
+    .dt-layout-cell.dt-layout-start form .flex.h-8\.5 input {
+      height: 100% !important;
+      flex: 1;
+      text-align: right;
+    }
+    .dt-layout-cell.dt-layout-start form button,
+    .dt-layout-cell.dt-layout-start form a {
+      height: 38px !important;
+      min-height: 38px !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      text-align: center !important;
+      font-size: 13px !important;
+      font-weight: 600 !important;
+      border-radius: var(--radius-sm);
+      box-sizing: border-box;
+    }
+
+    /* Footer: info entri dan pagination */
+    .dt-layout-row:not(.dt-layout-table) + .dt-layout-row:not(.dt-layout-table),
+    .dt-layout-row.dt-layout-table + .dt-layout-row:not(.dt-layout-table) {
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+    }
+    .dt-info {
+      width: 100%;
+      text-align: center;
+      font-size: 12px;
+    }
+    .dt-paging {
+      width: 100%;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .dt-paging .dt-paging-button {
+      min-width: 32px;
+      height: 32px;
+      font-size: 12px;
+      padding: 0 8px;
+    }
+  }
+}

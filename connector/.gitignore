@@ -1,0 +1,18 @@
+# Runtime state & checkpoint lokal per mesin (jangan pernah di-commit)
+checkpoint.txt
+offline_buffer*.txt
+state/
+
+# Konfigurasi lokal berisi token rahasia (hasil unduhan dari panel admin)
+connector_config.ini
+connector_config.ini.*.bak
+
+# Path python.exe khusus tiap PC (launcher Windows)
+python_path.txt
+
+# Artefak Python
+__pycache__/
+*.pyc
+
+# Arsip artefak Python yang ditimpa saat rollback ke connector C# (Fase 0)
+_python_artifacts_*/

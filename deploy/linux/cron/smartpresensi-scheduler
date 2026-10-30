@@ -1,0 +1,4 @@
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+* * * * * www-data cd /var/www/smartpresensi && /usr/bin/php8.3 artisan schedule:run >> /var/www/smartpresensi/storage/logs/scheduler.log 2>&1
