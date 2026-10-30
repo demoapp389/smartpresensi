@@ -416,6 +416,11 @@ class ZKDevice:
                 return self._data + more, len(self._data) + len(more)
             return self._data, len(self._data)
 
+        if len(self._data) < 5:
+            raise ZKProtocolError(
+                f"Respons CMD_PREPARE_BUFFER terlalu pendek ({len(self._data)} byte)."
+            )
+
         size = struct.unpack("I", self._data[1:5])[0]
         data = []
         start = 0
