@@ -158,6 +158,47 @@ Dari folder instalasi, sebagai Administrator:
 - Untuk **membarui versi aplikasi**, minta paket terbaru dari vendor (lihat Lampiran).
 - Jangan menimpa folder `data\` dan berkas `app\.env` saat memperbarui aplikasi.
 
+### 8.1 Mengubah token WhatsApp
+
+Token gateway **hanya** dibaca dari `C:\SmartPresensi\app\.env`. Halaman **Pengaturan ->
+Gateway WhatsApp** bersifat read-only: ia menampilkan status dan tombol uji kirim, bukan
+tempat menyimpan token. Berkas `.env` tidak ikut Git, tetapi wizard/`setup.ps1` membuatnya
+otomatis saat pemasangan.
+
+**Fonnte (paling umum):**
+
+```env
+WA_GATEWAY_PROVIDER=fonnte
+WA_FONNTE_TOKEN=token-dari-dashboard-fonnte
+SCHOOL_NAME="SMA Negeri 1"
+# Wajib bila memakai webhook status Fonnte (lihat bagian 9).
+WA_WEBHOOK_SECRET=rahasia-webhook
+```
+
+**Meta WhatsApp Cloud API:**
+
+```env
+WA_GATEWAY_PROVIDER=meta
+WA_META_PHONE_NUMBER_ID=1234567890
+WA_META_ACCESS_TOKEN=EAAG...
+WA_WEBHOOK_VERIFY_TOKEN=token-verifikasi-webhook
+WA_META_APP_SECRET=app-secret-meta
+```
+
+`log` dan `mock` tidak mengirim pesan sungguhan; pakai hanya untuk pengujian.
+
+Setelah mengubah `.env`, jalankan sebagai Administrator:
+
+```powershell
+cd C:\SmartPresensi
+.\runtime\php\php.exe artisan optimize:clear
+.\runtime\php\php.exe artisan optimize
+Restart-Service SmartPresensiSupervisor
+```
+
+Verifikasi lewat **Pengaturan -> Gateway WhatsApp**, lalu kirim pesan uji dari halaman itu.
+Pesan yang gagal bisa dikirim ulang dari **Outbox Pesan**.
+
 ---
 
 ## 9. Webhook WhatsApp via Cloudflare Tunnel (Opsional)
@@ -289,7 +330,7 @@ Tidak ada perubahan kode yang diperlukan.
 | "Unsupported cipher or incorrect key length" | Kunci aplikasi rusak. Jalankan `php artisan key:generate --force`. |
 | Perubahan tampilan tidak muncul | Aset belum dibangun. Jalankan `npm run build`, lalu refresh keras (Ctrl+F5). |
 | Port web/database "sudah dipakai" | Ada aplikasi lain memakai port sama (XAMPP/Laragon). Ganti port, atau hentikan aplikasi tersebut. |
-| Pesan WhatsApp tidak terkirim | Cek token gateway di `.env`, lalu buka **Outbox Pesan** dan klik **Kirim Ulang** untuk pesan gagal. Pastikan queue worker berjalan. |
+| Pesan WhatsApp tidak terkirim | Cek token gateway di `.env` (bagian 8.1), lalu buka **Outbox Pesan** dan klik **Kirim Ulang** untuk pesan gagal. Setelah mengubah `.env`, jalankan `optimize:clear` + `optimize` dan restart `SmartPresensiSupervisor`. |
 | Webhook Fonnte mengembalikan `403` | Secret tidak cocok. Samakan `WA_WEBHOOK_SECRET` dengan secret di Fonnte, lalu jalankan `optimize:clear` dan `optimize`. |
 | Webhook Fonnte mengembalikan `502` | Aplikasi tidak berjalan di port tujuan atau service `cloudflared` berhenti. Cek `Get-NetTCPConnection -State Listen` dan `Get-Service cloudflared`. |
 | `/login` dari domain publik mengembalikan `404` | Normal. Akses publik memang dibatasi ke webhook; gunakan alamat LAN untuk dashboard. |

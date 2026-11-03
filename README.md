@@ -32,7 +32,8 @@ sudo bash deploy/linux/install.sh \
   --app-url "http://192.168.1.10" \
   --admin-name "Administrator Sekolah" \
   --admin-email "admin@sekolah.sch.id" \
-  --admin-password "KataSandiKuat123"
+  --admin-password "KataSandiKuat123" \
+  --wa-provider fonnte --wa-token "TOKEN-FONNTE"
 ```
 
 Installer harus dijalankan **dari dalam folder aplikasi** (folder yang berisi `artisan` dan
@@ -41,6 +42,11 @@ akses Packagist dan npm registry saat instalasi. Bila server tanpa internet, ung
 dan `public/build/` hasil build di Linux lain, lalu tambahkan `--skip-composer --skip-build`.
 Rincian langkah pengambilan source (git clone / unggah ZIP) ada di
 [`docs/PANDUAN_DEPLOYMENT_LINUX.md`](docs/PANDUAN_DEPLOYMENT_LINUX.md) bagian 3.1.
+
+Token WhatsApp dibaca dari `.env` (tidak ikut Git, dibuat installer dari `.env.example`).
+Isi saat instalasi dengan `--wa-provider fonnte --wa-token "..."`, atau sunting `.env`
+belakangan lalu jalankan `php artisan optimize:clear` dan restart `smartpresensi-worker`.
+Rincian variabel per provider ada di panduan Linux bagian 4.3.1.
 
 Skrip `deploy/linux/install.sh` bersifat idempoten: menyiapkan `.env`, database, aset,
 migrasi, akun admin, site Nginx, unit systemd (`smartpresensi-worker`,

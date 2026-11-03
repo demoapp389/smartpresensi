@@ -161,6 +161,8 @@ sudo bash deploy/linux/install.sh --check
 | `--db-name` / `--db-user` / `--db-password` | `absensi_siswa` / `smartpresensi` / acak | Kredensial MySQL yang dibuat |
 | `--db-host` / `--db-port` | `127.0.0.1` / `3306` | Lokasi MySQL |
 | `--admin-name` / `--admin-email` / `--admin-password` | - | Akun admin pertama (dibuat bila email & sandi diisi) |
+| `--wa-provider log\|meta\|fonnte\|mock` | dari `.env` | Menulis `WA_GATEWAY_PROVIDER` saat `.env` dibuat |
+| `--wa-token TOKEN` | - | Menulis `WA_FONNTE_TOKEN` (token gateway Fonnte) |
 | `--scheduler cron\|systemd` | `cron` | Cara menjalankan scheduler |
 | `--php-bin PATH` | `php8.3` | Binary PHP CLI |
 | `--skip-composer` `--skip-build` `--skip-migrate` `--skip-admin` | mati | Lewati tahap tertentu |
@@ -173,7 +175,8 @@ sudo bash deploy/linux/install.sh --check
 
 1. Memeriksa root, PHP 8.3 + ekstensi, Composer, Node/npm, Python 3, Nginx, MySQL.
 2. Membuat `.env` dari `.env.example` **hanya bila belum ada** (mengisi `APP_URL`,
-   kredensial DB, `CONNECTOR_PYTHON_BIN=/usr/bin/python3`, dan token Local API connector acak).
+   kredensial DB, `CONNECTOR_PYTHON_BIN=/usr/bin/python3`, token Local API connector acak,
+   serta `WA_GATEWAY_PROVIDER`/`WA_FONNTE_TOKEN` bila `--wa-provider`/`--wa-token` dipakai).
 3. `composer install --no-dev --optimize-autoloader` dan `npm ci && npm run build`.
 4. Membuat database + user MySQL (idempoten) dan memberi grant.
 5. `php artisan key:generate` (bila `APP_KEY` kosong), `migrate --force`, `sp:create-admin`.
@@ -292,6 +295,49 @@ sudo -u www-data php8.3 artisan sp:create-admin \
   --email="admin@sekolah.sch.id" \
   --password="KataSandiKuat123"
 ```
+
+### 4.3.1 Token WhatsApp
+
+Token gateway **hanya** dibaca dari `.env`. Halaman **Pengaturan -> Gateway WhatsApp**
+bersifat read-only: ia menampilkan status dan tombol uji kirim, bukan tempat menyimpan token.
+Berkas `.env` tidak ikut Git (`.gitignore` baris 3), jadi setelah `git clone` berkas itu
+belum ada dan harus dibuat dari `.env.example` seperti langkah 4.3 di atas.
+
+**Fonnte (paling umum):**
+
+```env
+WA_GATEWAY_PROVIDER=fonnte
+WA_FONNTE_TOKEN=token-dari-dashboard-fonnte
+SCHOOL_NAME="SMA Negeri 1"
+# Wajib bila memakai webhook status Fonnte (Cloudflare Tunnel).
+WA_WEBHOOK_SECRET=rahasia-webhook
+```
+
+**Meta WhatsApp Cloud API:**
+
+```env
+WA_GATEWAY_PROVIDER=meta
+WA_META_PHONE_NUMBER_ID=1234567890
+WA_META_ACCESS_TOKEN=EAAG...
+WA_WEBHOOK_VERIFY_TOKEN=token-verifikasi-webhook
+WA_META_APP_SECRET=app-secret-meta
+```
+
+`log` dan `mock` tidak mengirim pesan sungguhan; pakai hanya untuk pengujian.
+
+Installer menjalankan `php artisan optimize` di akhir, sehingga perubahan `.env` tidak
+terbaca sampai cache dibersihkan. Setelah mengubah token:
+
+```bash
+cd /var/www/smartpresensi
+sudo -u www-data php8.3 artisan optimize:clear
+sudo -u www-data php8.3 artisan optimize
+sudo systemctl restart smartpresensi-worker
+```
+
+Verifikasi lewat **Pengaturan -> Gateway WhatsApp** (token terisi dan status provider aktif),
+lalu kirim pesan uji dari halaman itu. Bila gagal, periksa `storage/logs/laravel.log` dan
+pastikan worker berjalan (`systemctl status smartpresensi-worker`).
 
 ### 4.4 Nginx dan PHP-FPM
 
@@ -609,7 +655,7 @@ sudo -u www-data php8.3 artisan up
 | "Unsupported cipher or incorrect key length" | Kunci aplikasi rusak. Jalankan `php artisan key:generate --force`. |
 | Perubahan tampilan tidak muncul | Aset belum dibangun. Jalankan `npm run build`, lalu refresh keras (Ctrl+F5). |
 | Port web/database "sudah dipakai" | Ada layanan lain memakai port sama. Ganti port, atau hentikan layanan tersebut. |
-| Pesan WhatsApp tidak terkirim | Cek token gateway di `.env`, lalu buka **Outbox Pesan** dan klik **Kirim Ulang** untuk pesan gagal. Pastikan queue worker berjalan. |
+| Pesan WhatsApp tidak terkirim | Cek token gateway di `.env` (bagian 4.3.1), lalu buka **Outbox Pesan** dan klik **Kirim Ulang** untuk pesan gagal. Setelah mengubah `.env`, jalankan `optimize:clear` + `optimize` dan restart `smartpresensi-worker`. |
 | Webhook Fonnte mengembalikan `403` | Secret tidak cocok. Samakan `WA_WEBHOOK_SECRET` dengan secret di Fonnte, lalu jalankan `optimize:clear` dan `optimize`. |
 | Webhook Fonnte mengembalikan `502` | Aplikasi tidak berjalan di port tujuan atau tunnel berhenti. Cek `ss -ltnp` dan `systemctl status cloudflared`. |
 | `/login` dari domain publik mengembalikan `404` | Normal. Akses publik memang dibatasi ke webhook; gunakan alamat LAN untuk dashboard. |

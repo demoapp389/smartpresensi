@@ -10,7 +10,8 @@
 #   sudo bash deploy/linux/install.sh --app-url "http://192.168.1.10" \
 #     --admin-name "Administrator Sekolah" \
 #     --admin-email "admin@sekolah.sch.id" \
-#     --admin-password "KataSandiKuat123"
+#     --admin-password "KataSandiKuat123" \
+#     --wa-provider fonnte --wa-token "TOKEN-FONNTE"
 #
 #   sudo bash deploy/linux/install.sh --check    # hanya periksa prasyarat
 #
@@ -34,6 +35,8 @@ DB_PASSWORD=""
 ADMIN_NAME="Administrator Sekolah"
 ADMIN_EMAIL=""
 ADMIN_PASSWORD=""
+WA_PROVIDER=""
+WA_TOKEN=""
 SCHEDULER="cron"
 PHP_BIN=""
 PHP_FPM_SOCKET=""
@@ -62,7 +65,7 @@ die()  { printf '\033[1;31m[GAGAL]\033[0m %s\n' "$*" >&2; exit 1; }
 trap 'die "Instalasi berhenti pada baris $LINENO. Periksa pesan di atas."' ERR
 
 usage() {
-    sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     cat <<'EOF'
 
 Opsi:
@@ -78,6 +81,8 @@ Opsi:
   --admin-name NAME         Nama administrator
   --admin-email EMAIL       Email administrator (wajib untuk membuat admin)
   --admin-password PASS     Sandi administrator (minimal 8 karakter)
+  --wa-provider PROVIDER    Provider WhatsApp: log|meta|fonnte|mock (default: dari .env)
+  --wa-token TOKEN          Token gateway Fonnte (ditulis ke WA_FONNTE_TOKEN)
   --scheduler cron|systemd  Cara menjalankan scheduler (default: cron)
   --php-bin PATH            Binary PHP CLI (default: php8.3)
   --php-fpm-socket PATH     Socket PHP-FPM (default: /run/php/phpX.Y-fpm.sock)
@@ -194,6 +199,8 @@ while [ $# -gt 0 ]; do
         --admin-name)       ADMIN_NAME="$2"; shift 2 ;;
         --admin-email)      ADMIN_EMAIL="$2"; shift 2 ;;
         --admin-password)   ADMIN_PASSWORD="$2"; shift 2 ;;
+        --wa-provider)      WA_PROVIDER="$2"; shift 2 ;;
+        --wa-token)         WA_TOKEN="$2"; shift 2 ;;
         --scheduler)        SCHEDULER="$2"; shift 2 ;;
         --php-bin)          PHP_BIN="$2"; shift 2 ;;
         --php-fpm-socket)   PHP_FPM_SOCKET="$2"; shift 2 ;;
@@ -216,6 +223,11 @@ done
 case "$SCHEDULER" in
     cron|systemd) ;;
     *) die "--scheduler harus 'cron' atau 'systemd'." ;;
+esac
+
+case "$WA_PROVIDER" in
+    ""|log|meta|fonnte|mock) ;;
+    *) die "--wa-provider harus salah satu: log, meta, fonnte, mock." ;;
 esac
 
 APP_DIR=$(cd -- "$APP_DIR" && pwd) || die "Folder aplikasi tidak ditemukan: $APP_DIR"
@@ -365,6 +377,34 @@ set_env CONNECTOR_LOCAL_API_URL "http://127.0.0.1:4371" "$ENV_FILE"
 if [ -z "$(env_get CONNECTOR_LOCAL_API_TOKEN "$ENV_FILE")" ]; then
     set_env_quoted CONNECTOR_LOCAL_API_TOKEN "$(generate_secret)" "$ENV_FILE"
     ok "Token Local API connector dibuat."
+fi
+
+if [ -n "$WA_PROVIDER" ]; then
+    set_env WA_GATEWAY_PROVIDER "$WA_PROVIDER" "$ENV_FILE"
+    ok "Provider WhatsApp diset ke '$WA_PROVIDER'."
+fi
+
+if [ -n "$WA_TOKEN" ]; then
+    set_env_quoted WA_FONNTE_TOKEN "$WA_TOKEN" "$ENV_FILE"
+    ok "Token Fonnte ditulis ke WA_FONNTE_TOKEN."
+fi
+
+WA_PROVIDER_EFFECTIVE=$(env_get WA_GATEWAY_PROVIDER "$ENV_FILE")
+WA_PROVIDER_EFFECTIVE=${WA_PROVIDER_EFFECTIVE:-log}
+
+if [ "$WA_PROVIDER_EFFECTIVE" = "fonnte" ] && [ -z "$(env_get WA_FONNTE_TOKEN "$ENV_FILE")" ]; then
+    warn "WA_FONNTE_TOKEN masih kosong. Isi di $ENV_FILE, lalu jalankan:"
+    warn "  sudo -u $APP_OWNER $PHP_BIN $APP_DIR/artisan optimize:clear"
+    warn "  sudo systemctl restart smartpresensi-worker"
+fi
+
+if [ "$WA_PROVIDER_EFFECTIVE" = "meta" ] && { [ -z "$(env_get WA_META_ACCESS_TOKEN "$ENV_FILE")" ] || [ -z "$(env_get WA_META_PHONE_NUMBER_ID "$ENV_FILE")" ]; }; then
+    warn "WA_META_ACCESS_TOKEN/WA_META_PHONE_NUMBER_ID masih kosong di $ENV_FILE."
+fi
+
+if [ -n "$WA_TOKEN" ] && [ "$WA_PROVIDER_EFFECTIVE" != "fonnte" ]; then
+    warn "Token Fonnte disimpan, tetapi WA_GATEWAY_PROVIDER=$WA_PROVIDER_EFFECTIVE."
+    warn "Tambahkan --wa-provider fonnte agar pengiriman lewat Fonnte aktif."
 fi
 
 chown "$APP_OWNER:$APP_GROUP" "$ENV_FILE" 2>/dev/null || true
@@ -559,6 +599,7 @@ Pemasangan selesai.
   PHP           : $PHP_BIN
   Database      : $DB_NAME (user: $DB_USER)
   Scheduler     : $SCHEDULER
+  WhatsApp      : $WA_PROVIDER_EFFECTIVE
   Pemilik berkas: $APP_OWNER:$APP_GROUP
 
 Langkah berikutnya:
