@@ -48,10 +48,16 @@ class FingerprintIngestController extends Controller
             'logs.*.occurred_at' => ['required_without:logs.*.time'],
             'logs.*.time' => ['required_without:logs.*.occurred_at'],
             'logs.*.source_key' => ['nullable', 'string'],
+            // Connector mengirim live=false untuk batch dari offline buffer.
+            'live' => ['sometimes', 'boolean'],
         ]);
 
         // 1. Simpan raw log secara idempotent (PRD FR-03, FR-08)
-        $ingestResult = $ingestService->ingestBatch($device, $validated['logs']);
+        $ingestResult = $ingestService->ingestBatch(
+            $device,
+            $validated['logs'],
+            (bool) ($validated['live'] ?? true),
+        );
 
         // 2. Proses log yang baru tersimpan ke dalam attendances (PRD FR-09).
         //    Service ini juga mengirim notifikasi WA hanya untuk scan hari ini.

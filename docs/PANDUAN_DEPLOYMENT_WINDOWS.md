@@ -337,6 +337,7 @@ Tidak ada perubahan kode yang diperlukan.
 | Status `delivered/read` tidak berubah | Pastikan URL webhook benar, Auto Read aktif, dan pesan dikirim dari aplikasi sehingga `provider_message_id` cocok dengan baris Outbox. |
 | Mesin fingerprint Offline | Pastikan mesin menyala dan satu jaringan. Jalankan **Tes Koneksi** pada halaman mesin, lalu sinkronkan ulang. |
 | Status online/offline tidak berubah sendiri | Scheduler tidak berjalan. Cek `SmartPresensiSupervisor` dan jalankan `php artisan schedule:list`. |
+| Status mesin berkedip online padahal mesin mati | Connector mengirim ulang offline buffer dan dulu ikut menandai online. Versi terbaru mengirim `live=false` untuk buffer dan hanya memercayai status `connected` yang masih segar (`CONNECTOR_STATUS_STALE_SECONDS`, default 90 detik). Pastikan connector dan aplikasi sudah versi terbaru, lalu restart service connector dan `smartpresensi-worker`. |
 
 ### 10.2 Khusus Windows
 

@@ -16,7 +16,12 @@ class FingerprintConnectivityStatusTest extends TestCase
         $service = $this->service([
             'status' => 'ok',
             'devices' => [
-                ['ip' => '10.0.0.1', 'port' => 4370, 'connected' => true],
+                [
+                    'ip' => '10.0.0.1',
+                    'port' => 4370,
+                    'connected' => true,
+                    'last_success_age_seconds' => 5,
+                ],
             ],
         ]);
 
@@ -25,12 +30,52 @@ class FingerprintConnectivityStatusTest extends TestCase
         $this->assertSame('/api/status', $service->lastEndpoint);
     }
 
+    public function test_heartbeat_treats_stale_connector_success_as_offline(): void
+    {
+        $service = $this->service([
+            'status' => 'ok',
+            'devices' => [
+                [
+                    'ip' => '10.0.0.1',
+                    'port' => 4370,
+                    'connected' => true,
+                    'last_success_age_seconds' => 300,
+                ],
+            ],
+        ]);
+
+        $this->assertFalse($service->checkConnectivity($this->device('10.0.0.1', 4370)));
+        $this->assertSame(0, $service->socketChecks);
+    }
+
+    public function test_heartbeat_falls_back_to_last_success_at_for_old_connector(): void
+    {
+        $service = $this->service([
+            'status' => 'ok',
+            'devices' => [
+                [
+                    'ip' => '10.0.0.1',
+                    'port' => 4370,
+                    'connected' => true,
+                    'last_success_at' => now()->subSeconds(5)->toDateTimeString(),
+                ],
+            ],
+        ]);
+
+        $this->assertTrue($service->checkConnectivity($this->device('10.0.0.1', 4370)));
+    }
+
     public function test_heartbeat_trusts_connector_when_device_is_disconnected(): void
     {
         $service = $this->service([
             'status' => 'ok',
             'devices' => [
-                ['ip' => '10.0.0.1', 'port' => 4370, 'connected' => false],
+                [
+                    'ip' => '10.0.0.1',
+                    'port' => 4370,
+                    'connected' => false,
+                    'last_success_age_seconds' => 5,
+                ],
             ],
         ]);
 
@@ -44,6 +89,7 @@ class FingerprintConnectivityStatusTest extends TestCase
 
         $this->assertTrue($service->checkConnectivity($this->device('10.0.0.1', 4370)));
         $this->assertSame(1, $service->socketChecks);
+        $this->assertSame([4370, false], $service->socketArgs);
     }
 
     public function test_heartbeat_falls_back_to_socket_when_device_is_not_in_connector_config(): void
@@ -59,10 +105,26 @@ class FingerprintConnectivityStatusTest extends TestCase
         $this->assertSame(1, $service->socketChecks);
     }
 
-    private function device(string $ip, int $port): FingerprintDevice
+    public function test_heartbeat_probes_web_port_for_soap_device(): void
+    {
+        $service = $this->service([
+            'status' => 'ok',
+            'devices' => [
+                ['ip' => '10.0.0.1', 'port' => 4370, 'connected' => false],
+            ],
+        ], true);
+
+        $device = $this->device('10.0.0.1', 4370, 'soap');
+
+        $this->assertTrue($service->checkConnectivity($device));
+        $this->assertSame([80, false], $service->socketArgs);
+        $this->assertSame(0, $service->statusChecks);
+    }
+
+    private function device(string $ip, int $port, string $driver = 'connector'): FingerprintDevice
     {
         $device = new FingerprintDevice;
-        $device->forceFill(['ip' => $ip, 'port' => $port]);
+        $device->forceFill(['ip' => $ip, 'port' => $port, 'ingest_driver' => $driver]);
 
         return $device;
     }
@@ -73,7 +135,12 @@ class FingerprintConnectivityStatusTest extends TestCase
         {
             public int $socketChecks = 0;
 
+            public int $statusChecks = 0;
+
             public ?string $lastEndpoint = null;
+
+            /** @var array{0: int, 1: bool}|null */
+            public ?array $socketArgs = null;
 
             public function __construct(
                 FingerprintIngestService $ingestService,
@@ -88,13 +155,15 @@ class FingerprintConnectivityStatusTest extends TestCase
             protected function callHttpApi(string $endpoint, array $queryParams = [], float $timeout = 3): ?array
             {
                 $this->lastEndpoint = $endpoint;
+                $this->statusChecks++;
 
                 return $this->status;
             }
 
-            protected function checkSocketReachable(string $ip, int $port, float $timeout = 1.5): true|string
+            protected function checkSocketReachable(string $ip, int $port, float $timeout = 1.5, bool $allowWebFallback = true): true|string
             {
                 $this->socketChecks++;
+                $this->socketArgs = [$port, $allowWebFallback];
 
                 return $this->socketReachable ? true : 'Mesin tidak terhubung.';
             }

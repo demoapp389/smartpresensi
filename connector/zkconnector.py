@@ -58,6 +58,11 @@ EVENT_READ_TIMEOUT = 1.0
 # Backoff saat mesin offline: 5 -> 10 -> 20 -> 40 -> 60 detik (maksimum 60).
 OFFLINE_BACKOFF_SECONDS = (5, 10, 20, 40, 60)
 
+# Status `connected` pada Local API hanya dipercaya selama jejak sukses terakhir
+# masih segar. Worker yang menggantung (mis. read timeout panjang) tidak boleh
+# membuat mesin tampak online tanpa batas waktu.
+STATUS_STALE_SECONDS = 90.0
+
 # Mesin tunggal format lama memakai kunci ini dan menyimpan state di BASE_DIR agar
 # watermark/buffer lama tidak hilang saat upgrade.
 LEGACY_KEY = "default"
@@ -385,6 +390,7 @@ class Connector:
         self._stop = threading.Event()
         self._locks: dict[str, threading.Lock] = {}
         self._connected: set[str] = set()
+        self._last_success: dict[str, float] = {}
         self._chunk_hints: dict[str, int] = {}
         self.states: "OrderedDict[str, DeviceState]" = OrderedDict(
             (key, DeviceState(device)) for key, device in config.devices.items()
@@ -415,6 +421,35 @@ class Connector:
             if device.ip == ip and device.port == port:
                 return self._locks.setdefault(key, threading.Lock())
         return self._locks.setdefault(f"{ip}:{port}", threading.Lock())
+
+    def _device_keys_for(self, ip: str, port: int) -> list[str]:
+        """Kunci konfigurasi yang memakai alamat IP/port tertentu."""
+        port = int(port)
+        return [
+            key
+            for key, device in self.config.devices.items()
+            if device.ip == ip and device.port == port
+        ]
+
+    def _mark_device_online(self, key: str) -> None:
+        """Catat kontak sukses terakhir agar status tidak basi."""
+        self._connected.add(key)
+        self._last_success[key] = time.time()
+
+    def _mark_device_offline(self, key: str) -> None:
+        self._connected.discard(key)
+        self._last_success.pop(key, None)
+
+    def _device_is_connected(self, key: str) -> bool:
+        """True hanya bila sukses terakhir masih dalam ambang STATUS_STALE_SECONDS."""
+        if key not in self._connected:
+            return False
+
+        seen = self._last_success.get(key)
+        if seen is None:
+            return False
+
+        return (time.time() - seen) <= STATUS_STALE_SECONDS
 
     def test_connection(self, ip: str, port: int, comm_key: str) -> dict:
         device = self._open_device(ip, port, comm_key)
@@ -587,11 +622,13 @@ class Connector:
 
     # ------------------------------------------------------- kirim ke Laravel
 
-    def send_logs(self, records: list[dict], token: str) -> bool:
+    def send_logs(self, records: list[dict], token: str, live: bool = True) -> bool:
         if not records:
             return True
 
-        payload = json.dumps({"logs": records}).encode("utf-8")
+        # `live=false` menandai kiriman dari offline buffer: data lama tidak boleh
+        # dianggap bukti mesin sedang terhubung (lihat FingerprintIngestService).
+        payload = json.dumps({"logs": records, "live": bool(live)}).encode("utf-8")
         request = Request(
             self.config.api_url,
             data=payload,
@@ -636,11 +673,15 @@ class Connector:
 
         return True
 
-    def _send_batched(self, device: DeviceConfig, records: list[dict]) -> bool:
+    def _send_batched(
+        self, device: DeviceConfig, records: list[dict], live: bool = True
+    ) -> bool:
         """Kirim per micro-batch (default 20 record); berhenti pada kegagalan pertama."""
         batch_size = max(1, int(self.config.batch_size))
         for start in range(0, len(records), batch_size):
-            if not self.send_logs(records[start : start + batch_size], device.token):
+            if not self.send_logs(
+                records[start : start + batch_size], device.token, live=live
+            ):
                 return False
         return True
 
@@ -822,7 +863,7 @@ class Connector:
                     }
                 )
 
-        if records and self._send_batched(device, records):
+        if records and self._send_batched(device, records, live=False):
             try:
                 path.unlink()
             except OSError:
@@ -851,7 +892,7 @@ class Connector:
                     device.ip, device.port, device.comm_key, self._chunk_hints.get(device.key)
                 )
                 records = handle.get_attendance()
-                self._connected.add(device.key)
+                self._mark_device_online(device.key)
                 state.last_read_mode = handle.last_read_mode
                 state.last_chunk_size = handle.last_chunk_size
 
@@ -890,7 +931,7 @@ class Connector:
 
                 return True
             except ZKError as exc:
-                self._connected.discard(device.key)
+                self._mark_device_offline(device.key)
                 state.last_error = str(exc)
                 _log(f"[LAN] {device.key} offline: {exc}")
                 return False
@@ -922,14 +963,14 @@ class Connector:
                 if not handle.register_events():
                     raise ZKProtocolError("Mesin tidak meng-ACK CMD_REG_EVENT.")
 
-                self._connected.add(device.key)
+                self._mark_device_online(device.key)
                 deadline = time.monotonic() + max(self.config.poll_interval_seconds, 1)
                 while not self._stop.is_set() and time.monotonic() < deadline:
                     if handle.read_event(EVENT_READ_TIMEOUT):
                         _log(f"[EVENT] {device.key}: event absensi diterima.")
                         break
             except ZKError as exc:
-                self._connected.discard(device.key)
+                self._mark_device_offline(device.key)
                 _log(f"[LAN] {device.key} mode event gagal: {exc}")
                 return False
             finally:
@@ -964,7 +1005,7 @@ class Connector:
                     result = self.poll_device(device)
             except Exception as exc:  # noqa: BLE001 - worker harus tetap hidup
                 _log(f"[ERROR] {device.key}: {exc}")
-                self._connected.discard(device.key)
+                self._mark_device_offline(device.key)
                 result = False
 
             if result is False:
@@ -1063,7 +1104,17 @@ class Connector:
                         "port": device.port,
                         "enabled": device.enabled,
                         "mode": device.mode,
-                        "connected": device.key in self._connected,
+                        "connected": self._device_is_connected(device.key),
+                        "last_success_at": _format_time(
+                            datetime.fromtimestamp(self._last_success[device.key])
+                            if device.key in self._last_success
+                            else None
+                        ),
+                        "last_success_age_seconds": (
+                            round(time.time() - self._last_success[device.key], 1)
+                            if device.key in self._last_success
+                            else None
+                        ),
                         "last_sync": _format_time(state.last_sync if state else None),
                         "last_clock_sync": _format_time(
                             state.last_clock_sync if state else None
@@ -1144,13 +1195,36 @@ class Connector:
                 "message": "Konektor sedang sibuk memproses mesin yang sama.",
             }
         try:
-            return operation()
+            result = operation()
+            self._record_api_result(ip, port, result)
+            return result
         except ZKError as exc:
+            self._mark_address_offline(ip, port)
             return {"success": False, "code": -1, "message": str(exc)}
         except Exception as exc:  # noqa: BLE001 - kembalikan JSON, jangan matikan server
+            self._mark_address_offline(ip, port)
             return {"success": False, "code": -900, "message": f"Exception internal: {exc}"}
         finally:
             lock.release()
+
+    def _record_api_result(self, ip: str, port: int, result: dict) -> None:
+        """Perbarui status konektivitas dari hasil operasi API manual (test/sync)."""
+        success = bool(result.get("success")) if isinstance(result, dict) else False
+
+        if success:
+            for key in self._device_keys_for(ip, port):
+                self._mark_device_online(key)
+            return
+
+        # -202 = lock sibuk, bukan bukti mesin sedang offline.
+        if isinstance(result, dict) and result.get("code") == -202:
+            return
+
+        self._mark_address_offline(ip, port)
+
+    def _mark_address_offline(self, ip: str, port: int) -> None:
+        for key in self._device_keys_for(ip, port):
+            self._mark_device_offline(key)
 
     @staticmethod
     def _wrap_users(users: list[dict]) -> dict:

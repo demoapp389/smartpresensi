@@ -281,6 +281,7 @@ DB_PASSWORD=GantiDenganSandiKuat
 CONNECTOR_PRIMARY_DRIVER=auto
 CONNECTOR_PYTHON_BIN=/usr/bin/python3
 CONNECTOR_LOCAL_API_URL=http://127.0.0.1:4371
+CONNECTOR_STATUS_STALE_SECONDS=90
 ```
 
 `SERVICE_SUPERVISOR_*` boleh dibiarkan kosong: supervisor memang tidak ada di Linux.
@@ -662,6 +663,7 @@ sudo -u www-data php8.3 artisan up
 | Status `delivered/read` tidak berubah | Pastikan URL webhook benar, Auto Read aktif, dan pesan dikirim dari aplikasi sehingga `provider_message_id` cocok dengan baris Outbox. |
 | Mesin fingerprint Offline | Pastikan mesin menyala dan satu jaringan. Jalankan **Tes Koneksi** pada halaman mesin, lalu sinkronkan ulang. |
 | Status online/offline tidak berubah sendiri | Scheduler tidak berjalan. Cek cron/systemd scheduler dan `php artisan schedule:list`. |
+| Status mesin berkedip online padahal mesin mati | Connector mengirim ulang offline buffer dan dulu ikut menandai online. Versi terbaru mengirim `live=false` untuk buffer dan hanya memercayai status `connected` yang masih segar (`CONNECTOR_STATUS_STALE_SECONDS`, default 90 detik). Pastikan connector dan aplikasi sudah versi terbaru, lalu restart `solutionx601-connector` dan `smartpresensi-worker`. |
 
 ### 11.2 Khusus Linux
 

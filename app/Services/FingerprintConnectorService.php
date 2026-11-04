@@ -82,7 +82,7 @@ class FingerprintConnectorService
      * sengaja dihapus karena router atau switch di LAN yang sama bisa menjawab ping,
      * sehingga perangkat yang bukan mesin ikut terdeteksi online.
      */
-    protected function checkSocketReachable(string $ip, int $port, float $timeout = 1.5): true|string
+    protected function checkSocketReachable(string $ip, int $port, float $timeout = 1.5, bool $allowWebFallback = true): true|string
     {
         $errno = 0;
         $errstr = '';
@@ -95,8 +95,9 @@ class FingerprintConnectorService
             return true;
         }
 
-        // 2. Jika port 4370 tidak merespons, cek port web SOAP (port 80)
-        if ($port === 4370) {
+        // 2. Khusus jalur Web SOAP: port 80 boleh dipakai sebagai bukti konektivitas.
+        //    Untuk mesin connector, port 80 yang terbuka TIDAK berarti SDK 4370 hidup.
+        if ($allowWebFallback && $port === 4370) {
             $fpWeb = @fsockopen($ip, 80, $errno, $errstr, 1.0);
             if ($fpWeb) {
                 fclose($fpWeb);
@@ -117,6 +118,13 @@ class FingerprintConnectorService
      */
     public function checkConnectivity(FingerprintDevice $device): bool
     {
+        // Mesin jalur SOAP memakai web server (port 80), bukan port SDK 4370.
+        if ($device->ingestDriver() === 'soap') {
+            $soapPort = (int) $device->port === 4370 ? 80 : (int) $device->port;
+
+            return $this->checkSocketReachable($device->ip, $soapPort, 1.5, false) === true;
+        }
+
         $status = $this->callHttpApi('/api/status', [], 2);
 
         if (is_array($status) && ($status['status'] ?? null) === 'ok') {
@@ -133,11 +141,50 @@ class FingerprintConnectorService
                     continue;
                 }
 
-                return (bool) ($entry['connected'] ?? false);
+                // Connector yang melaporkan offline adalah sumber paling akurat;
+                // jangan jatuh ke probe port yang bisa memberi positif palsu.
+                if (! (bool) ($entry['connected'] ?? false)) {
+                    return false;
+                }
+
+                return $this->connectorSuccessIsFresh($entry);
             }
         }
 
-        return $this->checkSocketReachable($device->ip, (int) $device->port) === true;
+        // Connector tidak aktif / mesin tidak terdaftar: probe port SDK saja.
+        return $this->checkSocketReachable($device->ip, (int) $device->port, 1.5, false) === true;
+    }
+
+    /**
+     * Pastikan jejak sukses terakhir dari connector masih segar.
+     *
+     * Connector mengirim `last_success_age_seconds` (bebas zona waktu). Bila
+     * tidak ada (versi lama), `last_success_at` dipakai sebagai cadangan;
+     * keduanya kosong diperlakukan sebagai "percayai connected".
+     *
+     * @param  array<string, mixed>  $entry
+     */
+    protected function connectorSuccessIsFresh(array $entry): bool
+    {
+        $staleAfter = max(1, (int) config('attendance.connector_status_stale_seconds', 90));
+
+        $age = $entry['last_success_age_seconds'] ?? null;
+        if (is_numeric($age)) {
+            return (float) $age <= $staleAfter;
+        }
+
+        $lastSuccessAt = $entry['last_success_at'] ?? null;
+        if (! is_string($lastSuccessAt) || $lastSuccessAt === '') {
+            return true;
+        }
+
+        try {
+            $seen = Carbon::parse($lastSuccessAt);
+        } catch (\Throwable) {
+            return true;
+        }
+
+        return $seen->greaterThanOrEqualTo(now()->subSeconds($staleAfter));
     }
 
     /**
@@ -145,8 +192,14 @@ class FingerprintConnectorService
      */
     public function testConnection(FingerprintDevice $device, ?int $operatorId = null): array
     {
-        // 1. Pre-check konektivitas soket jaringan LAN (cepat 1.5 detik)
-        $socketStatus = $this->checkSocketReachable($device->ip, (int) $device->port);
+        // 1. Pre-check konektivitas soket jaringan LAN (cepat 1.5 detik).
+        //    Port 80 hanya dipakai sebagai bukti untuk mesin jalur SOAP.
+        $socketStatus = $this->checkSocketReachable(
+            $device->ip,
+            (int) $device->port,
+            1.5,
+            $device->ingestDriver() === 'soap',
+        );
         if ($socketStatus !== true) {
             $device->markOffline();
 

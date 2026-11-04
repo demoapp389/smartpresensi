@@ -130,6 +130,17 @@ class FingerprintDeviceStatusTest extends TestCase
         $this->assertNotNull($device->last_seen_at);
     }
 
+    public function test_buffered_ingest_does_not_mark_device_online(): void
+    {
+        $device = $this->createDevice(['status' => 'offline', 'last_seen_at' => null]);
+
+        app(FingerprintIngestService::class)->ingestBatch($device, [], false);
+
+        $device->refresh();
+        $this->assertSame('offline', $device->status);
+        $this->assertNull($device->last_seen_at);
+    }
+
     public function test_heartbeat_does_not_override_maintenance_status(): void
     {
         $device = $this->createDevice(['status' => 'maintenance']);

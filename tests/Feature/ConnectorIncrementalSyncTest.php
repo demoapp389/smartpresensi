@@ -105,7 +105,7 @@ class ConnectorIncrementalSyncTest extends TestCase
             /** @var array<string, mixed> */
             public array $response = [];
 
-            protected function checkSocketReachable(string $ip, int $port, float $timeout = 1.5): true|string
+            protected function checkSocketReachable(string $ip, int $port, float $timeout = 1.5, bool $allowWebFallback = true): true|string
             {
                 return true;
             }

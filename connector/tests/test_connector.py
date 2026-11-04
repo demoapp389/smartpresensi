@@ -316,7 +316,7 @@ class ConnectorTest(unittest.TestCase):
     def test_send_batched_splits_by_batch_size(self) -> None:
         self.config.batch_size = 2
         sizes: list[int] = []
-        self.connector.send_logs = lambda records, token: sizes.append(len(records)) or True
+        self.connector.send_logs = lambda records, token, live=True: sizes.append(len(records)) or True
 
         device = self.config.devices["gerbang"]
         records = [_record("1", "2026-10-14 07:0{0}:00".format(i)) for i in range(5)]
@@ -328,7 +328,7 @@ class ConnectorTest(unittest.TestCase):
         self.config.batch_size = 2
         sizes: list[int] = []
 
-        def _send(records: list[dict], _token: str) -> bool:
+        def _send(records: list[dict], _token: str, live: bool = True) -> bool:
             sizes.append(len(records))
             return len(sizes) == 1
 
@@ -378,6 +378,79 @@ class ConnectorTest(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual([d["key"] for d in result["devices"]], ["gerbang", "kelas"])
 
+    def test_status_marks_device_connected_only_when_recent(self) -> None:
+        self.connector._mark_device_online("gerbang")
+
+        entry = self.connector.handle_api("/api/status", {})["devices"][0]
+
+        self.assertTrue(entry["connected"])
+        self.assertNotEqual(entry["last_success_at"], "")
+
+        self.connector._last_success["gerbang"] = (
+            time.time() - zkconnector.STATUS_STALE_SECONDS - 1
+        )
+
+        stale = self.connector.handle_api("/api/status", {})["devices"][0]
+
+        self.assertFalse(stale["connected"])
+
+    def test_api_test_updates_connectivity_status(self) -> None:
+        self.connector.test_connection = lambda ip, port, key: {
+            "success": True,
+            "code": 0,
+            "message": "ok",
+        }
+
+        result = self.connector.handle_api(
+            "/api/test", {"ip": "10.0.0.1", "port": "4370"}
+        )
+
+        self.assertTrue(result["success"])
+        self.assertTrue(self.connector._device_is_connected("gerbang"))
+
+        def _fail(ip, port, key):
+            raise ZKProtocolError("mati")
+
+        self.connector.test_connection = _fail
+        failed = self.connector.handle_api(
+            "/api/test", {"ip": "10.0.0.1", "port": "4370"}
+        )
+
+        self.assertFalse(failed["success"])
+        self.assertFalse(self.connector._device_is_connected("gerbang"))
+
+    def test_send_logs_marks_buffered_batch_as_not_live(self) -> None:
+        response = FakeResponse(200, {"status": "success", "summary": {"accepted": 1}})
+        captured: list[dict] = []
+
+        def _capture(request, timeout):
+            captured.append(json.loads(request.data.decode("utf-8")))
+            return response
+
+        with mock.patch.object(zkconnector, "urlopen", side_effect=_capture):
+            self.assertTrue(
+                self.connector.send_logs(
+                    [_record("101", "2026-10-14 07:05:00")], "tok-1", live=False
+                )
+            )
+
+        self.assertFalse(captured[0]["live"])
+
+    def test_flush_buffer_sends_live_false(self) -> None:
+        device = self.config.devices["gerbang"]
+        state = self.connector.states["gerbang"]
+        self.connector._append_buffer(state, [_record("101", "2026-10-14 07:05:00")])
+
+        seen: list[bool] = []
+        self.connector._send_batched = (
+            lambda dev, records, live=True: seen.append(live) or True
+        )
+
+        self.connector._flush_buffer(device, state)
+
+        self.assertEqual(seen, [False])
+        self.assertFalse(state.device.buffer_file.exists())
+
     def test_wrap_logs_preserves_source_key(self) -> None:
         wrapped = self.connector._wrap_logs([_record("101", "2026-10-14 07:05:00")])
         self.assertTrue(wrapped["success"])
@@ -420,7 +493,7 @@ class ConnectorTest(unittest.TestCase):
 
     def test_poll_device_sends_only_new_records_and_advances_watermark(self) -> None:
         sent: list[dict] = []
-        self.connector.send_logs = lambda records, token: sent.extend(records) or True
+        self.connector.send_logs = lambda records, token, live=True: sent.extend(records) or True
         self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: FakeDevice(
             [
                 _record("101", "2026-10-14 07:05:00"),
@@ -450,7 +523,7 @@ class ConnectorTest(unittest.TestCase):
         self.assertEqual([r["pin"] for r in sent], ["103"])
 
     def test_poll_device_buffers_records_when_send_fails(self) -> None:
-        self.connector.send_logs = lambda records, token: False
+        self.connector.send_logs = lambda records, token, live=True: False
         self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: FakeDevice(
             [_record("101", "2026-10-14 07:05:00")]
         )
@@ -466,7 +539,7 @@ class ConnectorTest(unittest.TestCase):
 
         # Saat pengiriman pulih, buffer dikirim dan dihapus.
         delivered: list[dict] = []
-        self.connector.send_logs = lambda records, token: delivered.extend(records) or True
+        self.connector.send_logs = lambda records, token, live=True: delivered.extend(records) or True
         self.connector.poll_device(device)
 
         self.assertFalse(buffer.exists())
@@ -667,7 +740,7 @@ class ConnectorTest(unittest.TestCase):
         state.last_watermark = boundary
         state.seen_at_watermark = {first["source_key"]}
         sent: list[dict] = []
-        self.connector.send_logs = lambda records, token: sent.extend(records) or True
+        self.connector.send_logs = lambda records, token, live=True: sent.extend(records) or True
         self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: FakeDevice([first, second])
         device = self.config.devices["gerbang"]
 

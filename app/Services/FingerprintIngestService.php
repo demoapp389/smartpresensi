@@ -34,7 +34,7 @@ class FingerprintIngestService
      *
      * @return array{inserted: int, accepted: int, duplicates_skipped: int, unmapped: int, missing: array<int, string>}
      */
-    public function ingestBatch(FingerprintDevice $device, array $logs): array
+    public function ingestBatch(FingerprintDevice $device, array $logs, bool $live = true): array
     {
         $duplicateCount = 0;
         $unmappedCount = 0;
@@ -122,7 +122,12 @@ class FingerprintIngestService
             $missingKeys = [];
         }
 
-        $device->markOnline();
+        // Hanya kiriman live yang membuktikan mesin sedang terhubung. Batch dari
+        // offline buffer (`live=false`) bisa dikirim berkali-kali saat mesin mati,
+        // sehingga tidak boleh menandai perangkat online.
+        if ($live) {
+            $device->markOnline();
+        }
 
         return [
             'inserted' => $insertedCount,

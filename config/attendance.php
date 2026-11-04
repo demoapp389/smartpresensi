@@ -12,4 +12,7 @@ return [
     'log_processing_max_attempts' => max(1, (int) env('ATTENDANCE_LOG_MAX_ATTEMPTS', 4)),
 
     'log_processing_backoff_minutes' => [1, 5, 15, 60],
+
+    // Batas usia jejak sukses terakhir connector sebelum mesin dianggap offline.
+    'connector_status_stale_seconds' => max(1, (int) env('CONNECTOR_STATUS_STALE_SECONDS', 90)),
 ];

@@ -77,6 +77,20 @@ class FingerprintIngestControllerTest extends TestCase
             ->assertJsonValidationErrors('logs');
     }
 
+    public function test_buffered_ingest_does_not_mark_device_online(): void
+    {
+        $device = $this->device(['status' => 'offline', 'last_seen_at' => null]);
+        $payload = $this->payload();
+        $payload['live'] = false;
+
+        $this->postJson('/api/v1/fingerprint/ingest', $payload, ['X-Device-Token' => $device->secret_token])
+            ->assertOk();
+
+        $device->refresh();
+        $this->assertSame('offline', $device->status);
+        $this->assertNull($device->last_seen_at);
+    }
+
     public function test_ingest_returns_422_when_a_log_has_no_identifier_and_no_time(): void
     {
         $device = $this->device();
