@@ -22,6 +22,7 @@ from __future__ import annotations
 import configparser
 import hmac
 import json
+import os
 import signal
 import sys
 import threading
@@ -664,20 +665,54 @@ class Connector:
         if isinstance(accepted, bool) or not isinstance(accepted, int):
             _log("[HTTP WARN] Response Laravel API tidak memuat summary.accepted.")
             return False
-        if accepted < len(records):
+
+        # Laravel membuang `source_key` ganda di dalam satu batch, sehingga
+        # `accepted` bisa lebih kecil dari jumlah record yang dikirim. Batch tetap
+        # dianggap sukses bila tidak ada record yang hilang dan seluruh record
+        # terhitung sebagai diterima atau duplikat.
+        duplicates = summary.get("duplicates_skipped", 0)
+        if isinstance(duplicates, bool) or not isinstance(duplicates, int):
+            duplicates = 0
+
+        missing = summary.get("missing")
+        if isinstance(missing, list) and missing:
             _log(
-                f"[HTTP WARN] Laravel hanya menerima {accepted}/{len(records)} record; "
+                f"[HTTP WARN] Laravel tidak menyimpan {len(missing)}/{len(records)} record; "
                 "watermark tidak dimajukan."
+            )
+            return False
+
+        if accepted + duplicates < len(records):
+            _log(
+                f"[HTTP WARN] Laravel hanya menerima {accepted}/{len(records)} record "
+                f"(duplikat {duplicates}); watermark tidak dimajukan."
             )
             return False
 
         return True
 
+    @staticmethod
+    def _dedupe_records(records: list[dict]) -> list[dict]:
+        """Buang `source_key` ganda; pertahankan kemunculan pertama."""
+        unique: list[dict] = []
+        seen: set[str] = set()
+
+        for record in records:
+            source_key = str(record.get("source_key") or "")
+            if source_key:
+                if source_key in seen:
+                    continue
+                seen.add(source_key)
+            unique.append(record)
+
+        return unique
+
     def _send_batched(
         self, device: DeviceConfig, records: list[dict], live: bool = True
     ) -> bool:
-        """Kirim per micro-batch (default 20 record); berhenti pada kegagalan pertama."""
+        """Dedupe lalu kirim per micro-batch (default 20 record)."""
         batch_size = max(1, int(self.config.batch_size))
+        records = self._dedupe_records(records)
         for start in range(0, len(records), batch_size):
             if not self.send_logs(
                 records[start : start + batch_size], device.token, live=live
@@ -825,50 +860,133 @@ class Connector:
 
         _log(f"[CLOCK] {state.device.key}: jam disinkronkan. Drift sebelumnya {drift} detik.")
 
-    def _append_buffer(self, state: DeviceState, records: list[dict]) -> None:
+    @staticmethod
+    def _format_buffer_record(record: dict) -> str:
+        return (
+            f"{record['pin']}|{record['time']}|{record['verify_type']}|"
+            f"{record['source_key']}\n"
+        )
+
+    @staticmethod
+    def _parse_buffer_line(line: str) -> dict | None:
+        line = line.strip()
+        if not line:
+            return None
+
+        parts = line.split("|")
+        if len(parts) < 4:
+            return None
+
+        return {
+            "pin": parts[0],
+            "time": parts[1],
+            "verify_type": _to_int(parts[2], 0),
+            "source_key": parts[3],
+        }
+
+    def _append_buffer(self, state: DeviceState, records: list[dict]) -> bool:
+        """Tulis record ke offline buffer (WAL). Return True bila aman tersimpan."""
         if not records:
-            return
+            return True
+
         try:
             _ensure_parent(state.device.buffer_file)
             with state.device.buffer_file.open("a", encoding="utf-8") as handle:
                 for record in records:
-                    handle.write(
-                        f"{record['pin']}|{record['time']}|{record['verify_type']}|{record['source_key']}\n"
-                    )
-            _log(f"[BUFFER] {state.device.key}: {len(records)} scan disimpan ke offline buffer.")
+                    handle.write(self._format_buffer_record(record))
         except OSError as exc:
             _log(f"[BUFFER WARN] Gagal menulis offline buffer: {exc}")
+            return False
+
+        _log(f"[BUFFER] {state.device.key}: {len(records)} scan disimpan ke offline buffer.")
+        return True
 
     def _flush_buffer(self, device: DeviceConfig, state: DeviceState) -> None:
+        """Kirim offline buffer secara streaming agar tidak memuat seluruh file ke RAM.
+
+        Buffer dibaca per batch, record yang berhasil dikirim dibuang, dan sisa yang
+        belum terkirim ditulis ulang lewat file temporer sebelum mengganti buffer asli.
+        """
         path = state.device.buffer_file
         if not path.exists():
             return
+
+        temp_path = path.with_name(f"{path.name}.tmp")
+        batch_size = max(1, int(self.config.batch_size))
+        pending: list[dict] = []
+        sent_total = 0
+        failed = False
+
         try:
-            lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        except OSError:
-            return
-        if not lines:
+            with path.open("r", encoding="utf-8") as source:
+                with temp_path.open("w", encoding="utf-8") as remainder:
+                    for line in source:
+                        if failed:
+                            remainder.write(line)
+                            continue
+
+                        record = self._parse_buffer_line(line)
+                        if record is None:
+                            continue
+
+                        pending.append(record)
+                        if len(pending) < batch_size:
+                            continue
+
+                        if self._send_batched(device, pending, live=False):
+                            sent_total += len(pending)
+                            pending.clear()
+                        else:
+                            failed = True
+                            for kept in pending:
+                                remainder.write(self._format_buffer_record(kept))
+                            pending.clear()
+
+                    if pending and not failed:
+                        if self._send_batched(device, pending, live=False):
+                            sent_total += len(pending)
+                            pending.clear()
+                        else:
+                            failed = True
+                            for kept in pending:
+                                remainder.write(self._format_buffer_record(kept))
+                            pending.clear()
+        except OSError as exc:
+            _log(f"[BUFFER WARN] Gagal membaca/menulis offline buffer: {exc}")
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
             return
 
-        records = []
-        for line in lines:
-            parts = line.split("|")
-            if len(parts) >= 4:
-                records.append(
-                    {
-                        "pin": parts[0],
-                        "time": parts[1],
-                        "verify_type": _to_int(parts[2], 0),
-                        "source_key": parts[3],
-                    }
-                )
-
-        if records and self._send_batched(device, records, live=False):
+        if not failed:
             try:
                 path.unlink()
             except OSError:
                 pass
-            _log(f"[BUFFER SUCCESS] {device.key}: seluruh offline buffer berhasil dikirim.")
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+            if sent_total:
+                _log(
+                    f"[BUFFER SUCCESS] {device.key}: seluruh offline buffer berhasil dikirim."
+                )
+            return
+
+        try:
+            os.replace(temp_path, path)
+        except OSError as exc:
+            _log(f"[BUFFER WARN] Gagal menulis ulang sisa offline buffer: {exc}")
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+            return
+
+        _log(
+            f"[BUFFER] {device.key}: {sent_total} scan terkirim, sisa buffer dipertahankan."
+        )
 
     # ---------------------------------------------------------- poll daemon
 
@@ -907,6 +1025,10 @@ class Connector:
                     ):
                         new_records.append(record)
 
+                # Mesin bisa menyimpan dua scan dengan PIN + detik yang sama.
+                # Dedupe sebelum kirim/buffer agar batch tidak dianggap gagal.
+                new_records = self._dedupe_records(new_records)
+
                 if new_records:
                     _log(f"[INGEST] {device.key}: {len(new_records)} scan baru.")
                     if self._send_batched(device, new_records):
@@ -919,7 +1041,11 @@ class Connector:
                         )
                     else:
                         state.last_error = "Gagal mengirim log ke Laravel API."
-                        self._append_buffer(state, new_records)
+                        # Watermark hanya boleh maju setelah data aman tersimpan
+                        # (buffer lokal), agar record yang sama tidak ditulis ulang
+                        # setiap siklus poll.
+                        if self._append_buffer(state, new_records):
+                            self._mark_synced(state, new_records)
                 else:
                     state.last_error = ""
 

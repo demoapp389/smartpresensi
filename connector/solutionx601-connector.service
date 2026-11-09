@@ -3,15 +3,23 @@ Description=SmartPresensi Solution X601 Fingerprint Connector
 Documentation=file:///opt/smartpresensi/connector/INSTALL.md
 After=network-online.target
 Wants=network-online.target
+# Hentikan loop restart saat connector terus gagal/OOM.
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=/opt/smartpresensi/connector
 ExecStart=/usr/bin/python3 /opt/smartpresensi/connector/zkconnector.py
-Restart=always
-RestartSec=5
+# on-failure: stop manual tidak memicu restart.
+Restart=on-failure
+RestartSec=10
 TimeoutStopSec=15
+# Pengaman agar OOM hanya membunuh connector, bukan seluruh server.
+MemoryHigh=768M
+MemoryMax=1G
+OOMPolicy=stop
 User=smartpresensi
 Group=smartpresensi
 

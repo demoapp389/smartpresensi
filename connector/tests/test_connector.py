@@ -339,6 +339,20 @@ class ConnectorTest(unittest.TestCase):
         self.assertFalse(self.connector._send_batched(device, records))
         self.assertEqual(sizes, [2, 2])
 
+    def test_send_batched_dedupes_source_key(self) -> None:
+        duplicate = _record("101", "2026-10-14 07:05:00")
+        sizes: list[int] = []
+        self.connector.send_logs = lambda records, token, live=True: sizes.append(len(records)) or True
+        device = self.config.devices["gerbang"]
+
+        self.assertTrue(
+            self.connector._send_batched(
+                device,
+                [duplicate, dict(duplicate), _record("102", "2026-10-14 07:05:01")],
+            )
+        )
+        self.assertEqual(sizes, [2])
+
     def test_send_logs_requires_matching_accepted_count(self) -> None:
         records = [_record("101", "2026-10-14 07:05:00"), _record("102", "2026-10-14 07:05:01")]
         response = FakeResponse(200, {"status": "success", "summary": {"accepted": 2}})
@@ -349,6 +363,39 @@ class ConnectorTest(unittest.TestCase):
     def test_send_logs_rejects_partial_acceptance(self) -> None:
         records = [_record("101", "2026-10-14 07:05:00"), _record("102", "2026-10-14 07:05:01")]
         response = FakeResponse(200, {"status": "success", "summary": {"accepted": 1}})
+
+        with mock.patch.object(zkconnector, "urlopen", return_value=response):
+            self.assertFalse(self.connector.send_logs(records, "tok-1"))
+
+    def test_send_logs_accepts_duplicate_skipped_records(self) -> None:
+        records = [
+            _record("101", "2026-10-14 07:05:00"),
+            _record("101", "2026-10-14 07:05:00"),
+        ]
+        response = FakeResponse(
+            200,
+            {
+                "status": "success",
+                "summary": {"accepted": 1, "duplicates_skipped": 1, "missing": []},
+            },
+        )
+
+        with mock.patch.object(zkconnector, "urlopen", return_value=response):
+            self.assertTrue(self.connector.send_logs(records, "tok-1"))
+
+    def test_send_logs_rejects_batch_with_missing_records(self) -> None:
+        records = [_record("101", "2026-10-14 07:05:00"), _record("102", "2026-10-14 07:05:01")]
+        response = FakeResponse(
+            200,
+            {
+                "status": "success",
+                "summary": {
+                    "accepted": 1,
+                    "duplicates_skipped": 0,
+                    "missing": ["x601_102_1760418301"],
+                },
+            },
+        )
 
         with mock.patch.object(zkconnector, "urlopen", return_value=response):
             self.assertFalse(self.connector.send_logs(records, "tok-1"))
@@ -451,6 +498,34 @@ class ConnectorTest(unittest.TestCase):
         self.assertEqual(seen, [False])
         self.assertFalse(state.device.buffer_file.exists())
 
+    def test_flush_buffer_keeps_unsent_records_on_failure(self) -> None:
+        device = self.config.devices["gerbang"]
+        state = self.connector.states["gerbang"]
+        self.config.batch_size = 2
+        records = [
+            _record(str(100 + index), f"2026-10-14 07:0{index}:00")
+            for index in range(5)
+        ]
+        self.assertTrue(self.connector._append_buffer(state, records))
+
+        attempts: list[int] = []
+
+        def _send(_device, batch, live=True):
+            attempts.append(len(batch))
+            return len(attempts) == 1
+
+        self.connector._send_batched = _send
+        self.connector._flush_buffer(device, state)
+
+        remaining = state.device.buffer_file.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(remaining), 3)
+        self.assertEqual(attempts, [2, 2])
+
+        # Sisa buffer dikirim pada percobaan berikutnya lalu file dihapus.
+        self.connector._send_batched = lambda _device, batch, live=True: True
+        self.connector._flush_buffer(device, state)
+        self.assertFalse(state.device.buffer_file.exists())
+
     def test_wrap_logs_preserves_source_key(self) -> None:
         wrapped = self.connector._wrap_logs([_record("101", "2026-10-14 07:05:00")])
         self.assertTrue(wrapped["success"])
@@ -522,7 +597,7 @@ class ConnectorTest(unittest.TestCase):
         self.connector.poll_device(device)
         self.assertEqual([r["pin"] for r in sent], ["103"])
 
-    def test_poll_device_buffers_records_when_send_fails(self) -> None:
+    def test_poll_device_buffers_records_and_advances_watermark_when_send_fails(self) -> None:
         self.connector.send_logs = lambda records, token, live=True: False
         self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: FakeDevice(
             [_record("101", "2026-10-14 07:05:00")]
@@ -532,10 +607,17 @@ class ConnectorTest(unittest.TestCase):
         self.connector.poll_device(device)
 
         state = self.connector.states["gerbang"]
-        self.assertEqual(state.last_watermark, datetime.min)
+        # Data aman di buffer lokal (WAL), jadi watermark maju dan record yang sama
+        # tidak ditulis ulang pada siklus poll berikutnya.
+        self.assertEqual(state.last_watermark, datetime(2026, 10, 14, 7, 5, 0))
         buffer = state.device.buffer_file
         self.assertTrue(buffer.exists())
+        self.assertEqual(len(buffer.read_text(encoding="utf-8").splitlines()), 1)
         self.assertIn("101|2026-10-14 07:05:00|1|x601_101_", buffer.read_text(encoding="utf-8"))
+
+        # Poll ulang saat pengiriman masih gagal: buffer tidak bertambah.
+        self.connector.poll_device(device)
+        self.assertEqual(len(buffer.read_text(encoding="utf-8").splitlines()), 1)
 
         # Saat pengiriman pulih, buffer dikirim dan dihapus.
         delivered: list[dict] = []
