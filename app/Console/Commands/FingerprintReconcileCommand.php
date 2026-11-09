@@ -123,8 +123,8 @@ class FingerprintReconcileCommand extends Command
      * Tentukan interval rekonsiliasi (menit) berdasarkan jam efektif hari ini.
      *
      * Hari libur aktif → jarang. Di dalam (atau tepat di sekitar) jam sekolah
-     * (scan masuk sampai akhir jam pulang) → rapat, termasuk siswa yang datang
-     * terlambat setelah batas `late_after`. Di luar jam sekolah → jarang.
+     * (scan masuk sampai akhir jendela scan pulang) → rapat, termasuk siswa
+     * yang datang terlambat setelah toleransi. Di luar jam sekolah → jarang.
      * Bila jadwal tidak tersedia, default rapat agar absensi tidak tertunda.
      */
     protected function reconciliationIntervalMinutes(Carbon $now): int
@@ -146,7 +146,7 @@ class FingerprintReconcileCommand extends Command
             return $hasActiveSchedules ? self::SPARSE_INTERVAL_MINUTES : self::DENSE_INTERVAL_MINUTES;
         }
 
-        $withinSchoolHours = $this->isNearWindow($now, $schedule->check_in_start, $schedule->end_at);
+        $withinSchoolHours = $this->isNearWindow($now, $schedule->check_in_start, $schedule->effectiveCheckOutEnd());
 
         return $withinSchoolHours ? self::DENSE_INTERVAL_MINUTES : self::SPARSE_INTERVAL_MINUTES;
     }

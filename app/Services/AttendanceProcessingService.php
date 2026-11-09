@@ -26,7 +26,13 @@ class AttendanceProcessingService
 {
     private const NOTE_BEFORE_CHECK_IN = 'Scan sebelum jendela masuk';
 
-    private const NOTE_AFTER_END = 'Scan setelah jam pulang';
+    private const NOTE_AFTER_END = 'Scan setelah jendela pulang';
+
+    private const NOTE_OUTSIDE_SCAN_WINDOW = 'Scan di luar jendela scan masuk/pulang';
+
+    private const NOTE_HOLIDAY = 'Hari libur; scan tidak diproses';
+
+    private const NOTE_NO_SCHEDULE = 'Tidak ada jadwal aktif untuk hari ini';
 
     public function __construct(
         private readonly AttendanceStatusResolver $statusResolver,
@@ -113,11 +119,43 @@ class AttendanceProcessingService
             ->first();
 
         $isHoliday = SchoolHoliday::isHoliday($schoolDate);
-        $checkInStart = $this->scheduleMoment($schedule, 'check_in_start', $scanTime);
-        $checkOutStart = $this->scheduleMoment($schedule, 'check_out_start', $scanTime);
-        $endAt = $this->scheduleMoment($schedule, 'end_at', $scanTime);
 
-        $rejectionNote = $this->rejectionNote($schedule, $checkInStart, $endAt, $scanTime);
+        // Hari libur tidak membuat data absensi sama sekali. Hal ini mencegah
+        // scan saat libur memenuhi riwayat dan laporan.
+        if ($isHoliday) {
+            $log->update([
+                'status' => 'rejected',
+                'processing_note' => self::NOTE_HOLIDAY,
+            ]);
+
+            return null;
+        }
+
+        // Bila sekolah sudah memiliki jadwal aktif, hari tanpa jadwal dianggap
+        // libur mingguan. Bila belum ada jadwal sama sekali, perilaku lama
+        // dipertahankan agar instalasi kosong tetap dapat memproses scan.
+        if ($schedule === null && SchoolSchedule::where('is_active', true)->exists()) {
+            $log->update([
+                'status' => 'rejected',
+                'processing_note' => self::NOTE_NO_SCHEDULE,
+            ]);
+
+            return null;
+        }
+
+        $checkInStart = $this->timeOnDate($scanTime, $schedule?->check_in_start);
+        $checkInEnd = $this->timeOnDate($scanTime, $schedule?->effectiveCheckInEnd());
+        $checkOutStart = $this->timeOnDate($scanTime, $schedule?->check_out_start);
+        $checkOutEnd = $this->timeOnDate($scanTime, $schedule?->effectiveCheckOutEnd());
+
+        $rejectionNote = $this->rejectionNote(
+            $schedule,
+            $checkInStart,
+            $checkInEnd,
+            $checkOutStart,
+            $checkOutEnd,
+            $scanTime
+        );
 
         if ($rejectionNote !== null) {
             $log->update([
@@ -129,9 +167,10 @@ class AttendanceProcessingService
         }
 
         $isCheckOutWindow = $schedule !== null
-            && ! $isHoliday
             && $checkOutStart !== null
-            && $scanTime->greaterThanOrEqualTo($checkOutStart);
+            && $checkOutEnd !== null
+            && $scanTime->greaterThanOrEqualTo($checkOutStart)
+            && $scanTime->lessThanOrEqualTo($checkOutEnd);
 
         // Cari record absensi siswa untuk hari ini.
         // Race-safe: unique index (student_id, school_date) menjamin satu baris per hari.
@@ -399,7 +438,9 @@ class AttendanceProcessingService
     private function rejectionNote(
         ?SchoolSchedule $schedule,
         ?Carbon $checkInStart,
-        ?Carbon $endAt,
+        ?Carbon $checkInEnd,
+        ?Carbon $checkOutStart,
+        ?Carbon $checkOutEnd,
         Carbon $scanTime
     ): ?string {
         if ($schedule === null) {
@@ -410,21 +451,32 @@ class AttendanceProcessingService
             return self::NOTE_BEFORE_CHECK_IN.' ('.$schedule->check_in_start.')';
         }
 
-        if ($endAt !== null && $scanTime->greaterThan($endAt)) {
-            return self::NOTE_AFTER_END.' ('.$schedule->end_at.')';
+        if ($checkOutEnd !== null && $scanTime->greaterThan($checkOutEnd)) {
+            return self::NOTE_AFTER_END.' ('.$schedule->effectiveCheckOutEnd().')';
+        }
+
+        if (
+            $checkInEnd !== null
+            && $checkOutStart !== null
+            && $scanTime->greaterThan($checkInEnd)
+            && $scanTime->lessThan($checkOutStart)
+        ) {
+            return self::NOTE_OUTSIDE_SCAN_WINDOW
+                .' (masuk s.d. '.$schedule->effectiveCheckInEnd()
+                .', pulang mulai '.$schedule->check_out_start.')';
         }
 
         return null;
     }
 
-    private function scheduleMoment(?SchoolSchedule $schedule, string $column, Carbon $date): ?Carbon
+    private function timeOnDate(Carbon $date, ?string $time): ?Carbon
     {
-        if ($schedule === null || ! $schedule->{$column}) {
+        if ($time === null || $time === '') {
             return null;
         }
 
         return Carbon::parse(
-            $date->toDateString().' '.$schedule->{$column},
+            $date->toDateString().' '.$time,
             $date->getTimezone()
         );
     }

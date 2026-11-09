@@ -127,7 +127,7 @@ class SchoolHolidayManagementTest extends TestCase
         $this->assertDatabaseMissing('school_holidays', ['id' => $holiday->id]);
     }
 
-    public function test_attendance_processing_does_not_mark_as_late_on_holiday(): void
+    public function test_holiday_scan_is_rejected_without_creating_attendance(): void
     {
         // 1. Buat jadwal hari Senin: masuk 07:00, late_after 07:15
         SchoolSchedule::create([
@@ -182,10 +182,9 @@ class SchoolHolidayManagementTest extends TestCase
         $service = app(AttendanceProcessingService::class);
         $attendance = $service->processLog($log);
 
-        $this->assertNotNull($attendance);
-        // Scan masuk saja tetap hadir; hari libur tidak diklasifikasikan terlambat.
-        $this->assertSame('hadir', $attendance->status);
-        $this->assertSame('tepat_waktu', $attendance->check_in_status);
-        $this->assertSame(0, $attendance->late_minutes);
+        $this->assertNull($attendance);
+        $this->assertSame('rejected', $log->fresh()->status);
+        $this->assertStringContainsString('Hari libur', $log->fresh()->processing_note);
+        $this->assertDatabaseCount('attendances', 0);
     }
 }

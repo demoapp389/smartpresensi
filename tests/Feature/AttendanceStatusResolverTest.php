@@ -23,6 +23,12 @@ class AttendanceStatusResolverTest extends TestCase
             'early_leave_minutes',
         ]));
         $this->assertTrue(Schema::hasColumn('school_schedules', 'alpa_cutoff'));
+        $this->assertTrue(Schema::hasColumns('school_schedules', [
+            'check_in_end',
+            'late_tolerance_minutes',
+            'check_out_end',
+            'early_leave_tolerance_minutes',
+        ]));
         $this->assertTrue(Schema::hasColumn('attendance_logs', 'processing_note'));
     }
 
@@ -59,6 +65,33 @@ class AttendanceStatusResolverTest extends TestCase
         $this->assertSame(AttendanceStatusResolver::CHECK_OUT_ON_TIME, $resolver->checkOutStatus($onTime, $schedule));
     }
 
+    public function test_late_tolerance_minutes_override_legacy_late_after(): void
+    {
+        $resolver = app(AttendanceStatusResolver::class);
+        $schedule = $this->createSchedule(['late_tolerance_minutes' => 5]);
+
+        $withinTolerance = Carbon::parse('2026-10-14 07:05:00', 'Asia/Jakarta');
+        $beyondTolerance = Carbon::parse('2026-10-14 07:06:00', 'Asia/Jakarta');
+
+        $this->assertSame(AttendanceStatusResolver::CHECK_IN_ON_TIME, $resolver->checkInStatus($withinTolerance, $schedule));
+        $this->assertSame(AttendanceStatusResolver::CHECK_IN_LATE, $resolver->checkInStatus($beyondTolerance, $schedule));
+    }
+
+    public function test_early_leave_tolerance_minutes_override_zero_tolerance(): void
+    {
+        $resolver = app(AttendanceStatusResolver::class);
+        $schedule = $this->createSchedule(['early_leave_tolerance_minutes' => 5]);
+
+        $withinTolerance = Carbon::parse('2026-10-14 15:55:00', 'Asia/Jakarta');
+        $beyondTolerance = Carbon::parse('2026-10-14 15:54:00', 'Asia/Jakarta');
+
+        $this->assertSame(5, $resolver->earlyLeaveMinutes($withinTolerance, $schedule));
+        $this->assertSame(AttendanceStatusResolver::CHECK_OUT_ON_TIME, $resolver->checkOutStatus($withinTolerance, $schedule));
+
+        $this->assertSame(6, $resolver->earlyLeaveMinutes($beyondTolerance, $schedule));
+        $this->assertSame(AttendanceStatusResolver::CHECK_OUT_EARLY, $resolver->checkOutStatus($beyondTolerance, $schedule));
+    }
+
     public function test_alpa_cutoff_uses_explicit_value_or_end_time_plus_buffer(): void
     {
         $resolver = app(AttendanceStatusResolver::class);
@@ -74,6 +107,18 @@ class AttendanceStatusResolverTest extends TestCase
         $this->assertSame(
             '2026-10-14 16:30:00',
             $resolver->alpaCutoff($custom, $date)->format('Y-m-d H:i:s')
+        );
+    }
+
+    public function test_alpa_cutoff_falls_back_to_check_out_end_plus_buffer(): void
+    {
+        $resolver = app(AttendanceStatusResolver::class);
+        $date = Carbon::parse('2026-10-14', 'Asia/Jakarta');
+        $schedule = $this->createSchedule(['check_out_end' => '17:00:00']);
+
+        $this->assertSame(
+            '2026-10-14 17:05:00',
+            $resolver->alpaCutoff($schedule, $date)->format('Y-m-d H:i:s')
         );
     }
 

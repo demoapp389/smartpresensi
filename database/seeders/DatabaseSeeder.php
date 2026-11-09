@@ -54,25 +54,29 @@ class DatabaseSeeder extends Seeder
 
         // 3. Konfigurasi Jadwal Standar Sekolah (Senin - Sabtu)
         $days = [
-            1 => ['Senin', '06:00:00', '07:00:00', '07:15:00', '14:00:00', '16:00:00', 'regular'],
-            2 => ['Selasa', '06:00:00', '07:00:00', '07:15:00', '14:00:00', '16:00:00', 'regular'],
-            3 => ['Rabu', '06:00:00', '07:00:00', '07:15:00', '14:00:00', '16:00:00', 'regular'],
-            4 => ['Kamis', '06:00:00', '07:00:00', '07:15:00', '14:00:00', '16:00:00', 'regular'],
-            5 => ['Jumat', '06:00:00', '07:00:00', '07:15:00', '11:30:00', '14:00:00', 'jumat'],
-            6 => ['Sabtu', '06:00:00', '07:00:00', '07:15:00', '12:30:00', '15:00:00', 'sabtu'],
+            1 => ['name' => 'Senin', 'check_in_start' => '06:00:00', 'start_at' => '07:00:00', 'check_in_end' => '09:00:00', 'late_tolerance_minutes' => 15, 'check_out_start' => '14:00:00', 'end_at' => '16:00:00', 'check_out_end' => '17:00:00', 'day_pattern' => 'regular'],
+            2 => ['name' => 'Selasa', 'check_in_start' => '06:00:00', 'start_at' => '07:00:00', 'check_in_end' => '09:00:00', 'late_tolerance_minutes' => 15, 'check_out_start' => '14:00:00', 'end_at' => '16:00:00', 'check_out_end' => '17:00:00', 'day_pattern' => 'regular'],
+            3 => ['name' => 'Rabu', 'check_in_start' => '06:00:00', 'start_at' => '07:00:00', 'check_in_end' => '09:00:00', 'late_tolerance_minutes' => 15, 'check_out_start' => '14:00:00', 'end_at' => '16:00:00', 'check_out_end' => '17:00:00', 'day_pattern' => 'regular'],
+            4 => ['name' => 'Kamis', 'check_in_start' => '06:00:00', 'start_at' => '07:00:00', 'check_in_end' => '09:00:00', 'late_tolerance_minutes' => 15, 'check_out_start' => '14:00:00', 'end_at' => '16:00:00', 'check_out_end' => '17:00:00', 'day_pattern' => 'regular'],
+            5 => ['name' => 'Jumat', 'check_in_start' => '06:00:00', 'start_at' => '07:00:00', 'check_in_end' => '09:00:00', 'late_tolerance_minutes' => 15, 'check_out_start' => '11:30:00', 'end_at' => '14:00:00', 'check_out_end' => '15:00:00', 'day_pattern' => 'jumat'],
+            6 => ['name' => 'Sabtu', 'check_in_start' => '06:00:00', 'start_at' => '07:00:00', 'check_in_end' => '09:00:00', 'late_tolerance_minutes' => 15, 'check_out_start' => '12:30:00', 'end_at' => '15:00:00', 'check_out_end' => '16:00:00', 'day_pattern' => 'sabtu'],
         ];
 
         foreach ($days as $dayNum => $d) {
             SchoolSchedule::firstOrCreate(
                 ['day_of_week' => $dayNum],
                 [
-                    'day_name' => $d[0],
-                    'check_in_start' => $d[1],
-                    'start_at' => $d[2],
-                    'late_after' => $d[3],
-                    'check_out_start' => $d[4],
-                    'end_at' => $d[5],
-                    'day_pattern' => $d[6],
+                    'day_name' => $d['name'],
+                    'check_in_start' => $d['check_in_start'],
+                    'check_in_end' => $d['check_in_end'],
+                    'start_at' => $d['start_at'],
+                    'late_after' => '07:15:00',
+                    'late_tolerance_minutes' => $d['late_tolerance_minutes'],
+                    'check_out_start' => $d['check_out_start'],
+                    'end_at' => $d['end_at'],
+                    'check_out_end' => $d['check_out_end'],
+                    'early_leave_tolerance_minutes' => 0,
+                    'day_pattern' => $d['day_pattern'],
                     'is_active' => true,
                 ]
             );

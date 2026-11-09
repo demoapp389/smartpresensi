@@ -124,6 +124,51 @@ class FiveDaySchoolWeekTest extends TestCase
         $this->assertSame('07:00:00', $schedule->fresh()->start_at);
     }
 
+    public function test_schedule_rejects_check_in_end_after_check_out_start(): void
+    {
+        $schedule = SchoolSchedule::where('day_of_week', 3)->firstOrFail();
+
+        $this->actingAs($this->admin)->put(route('schedules.update', $schedule), [
+            'check_in_start' => '06:00',
+            'check_in_end' => '15:00',
+            'start_at' => '07:00',
+            'late_tolerance_minutes' => 15,
+            'check_out_start' => '14:00',
+            'check_out_end' => '17:00',
+            'end_at' => '16:00',
+            'early_leave_tolerance_minutes' => 0,
+            'day_pattern' => 'normal',
+            'is_active' => '1',
+        ])->assertSessionHasErrors('check_in_start');
+
+        $this->assertNull($schedule->fresh()->check_in_end);
+    }
+
+    public function test_admin_can_update_scan_windows_and_tolerances(): void
+    {
+        $schedule = SchoolSchedule::where('day_of_week', 3)->firstOrFail();
+
+        $this->actingAs($this->admin)->put(route('schedules.update', $schedule), [
+            'check_in_start' => '06:00',
+            'check_in_end' => '09:00',
+            'start_at' => '07:00',
+            'late_tolerance_minutes' => 10,
+            'check_out_start' => '14:00',
+            'check_out_end' => '17:00',
+            'end_at' => '16:00',
+            'early_leave_tolerance_minutes' => 5,
+            'day_pattern' => 'normal',
+            'is_active' => '1',
+        ])->assertSessionHasNoErrors();
+
+        $schedule->refresh();
+
+        $this->assertStringStartsWith('09:00', $schedule->check_in_end);
+        $this->assertSame(10, $schedule->late_tolerance_minutes);
+        $this->assertStringStartsWith('17:00', $schedule->check_out_end);
+        $this->assertSame(5, $schedule->early_leave_tolerance_minutes);
+    }
+
     public function test_schedule_times_allow_equal_boundaries(): void
     {
         $schedule = SchoolSchedule::where('day_of_week', 3)->firstOrFail();

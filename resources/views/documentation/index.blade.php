@@ -170,9 +170,9 @@
             'title' => 'Bagaimana mengatur jadwal absensi dan hari libur?',
             'keywords' => 'jadwal jam masuk pulang terlambat libur kalender toleransi',
             'body' => 'Buka <strong>Jadwal Absensi</strong>.'
-                .'<ul><li><strong>Jadwal Mingguan</strong> &mdash; atur Awal Buka Scan, Jam Masuk, Batas Toleransi, Awal Jendela Pulang, dan Batas Akhir Pulang. Untuk sekolah 5 hari kerja, nonaktifkan hari Sabtu agar dihitung libur.</li>'
-                .'<li><strong>Kalender Hari Libur</strong> &mdash; tambahkan libur nasional, cuti bersama, atau libur semester; pada hari libur scan tidak dihitung terlambat/alpa.</li></ul>'
-                .'Scan pertama sebelum batas akhir masuk menentukan status <em>Tepat Waktu</em> atau <em>Terlambat</em>; scan setelah awal jendela pulang menjadi <em>Pulang</em>.',
+                .'<ul><li><strong>Jadwal Mingguan</strong> &mdash; atur Mulai Scan Masuk, Akhir Scan Masuk, Jam Masuk Resmi, Toleransi Terlambat (menit), Mulai Scan Pulang, Akhir Scan Pulang, Jam Pulang Resmi, dan Toleransi Pulang Cepat (menit). Untuk sekolah 5 hari kerja, nonaktifkan hari Sabtu agar dihitung libur.</li>'
+                .'<li><strong>Kalender Hari Libur</strong> &mdash; tambahkan libur nasional, cuti bersama, atau libur semester. Scan pada hari libur ditolak dan tidak membuat data absensi.</li></ul>'
+                .'Scan pertama di jendela masuk menentukan status <em>Tepat Waktu</em> atau <em>Terlambat</em>; scan di jendela pulang menjadi <em>Pulang</em>. Scan di luar jendela masuk/pulang ditolak. Scan pulang tanpa scan masuk disimpan sebagai <em>Perlu Tinjauan</em>.',
         ],
 
         // ───────────── PERANGKAT ─────────────

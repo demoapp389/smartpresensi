@@ -3,7 +3,7 @@
 @section('title', 'Jadwal & Hari Libur')
 @section('page-pretitle', 'Konfigurasi Waktu')
 @section('page-title', 'Pengaturan Jadwal Sekolah & Kalender Libur')
-@section('page-subtitle', 'Kelola jam masuk, toleransi terlambat mingguan, dan penetapan hari libur khusus / cuti bersama')
+@section('page-subtitle', 'Kelola jendela scan masuk/pulang, toleransi menit, dan penetapan hari libur khusus / cuti bersama')
 
 @section('breadcrumb')
     <a href="{{ route('dashboard') }}" class="transition-colors hover:text-[var(--text)]">Beranda</a>
@@ -71,9 +71,10 @@
                 <span class="font-bold text-[var(--text)]">Ketentuan Engine Evaluasi Absensi &amp; Hari Kerja:</span>
                 <ul class="list-disc list-inside mt-1 space-y-0.5 text-[var(--text-secondary)] text-[11px]">
                     <li><strong>Sekolah 5 Hari Kerja:</strong> Cukup klik <em>Ubah Jam</em> pada hari Sabtu lalu hilangkan centang <em>"Aktifkan jadwal untuk hari ini"</em>. Hari non-aktif otomatis dihitung sebagai libur mingguan (tidak terhitung Alpa).</li>
-                    <li><strong>Periode Masuk:</strong> Scan pertama hari ini sebelum batas akhir masuk menentukan status <em>Hadir Tepat Waktu</em> atau <em>Terlambat</em>.</li>
-                    <li><strong>Toleransi Terlambat:</strong> Scan melewati jam <code>Batas Toleransi</code> otomatis diklasifikasikan sebagai <em>Terlambat</em>.</li>
-                    <li><strong>Jendela Pulang:</strong> Scan setelah jam <code>Awal Pulang</code> diklasifikasikan sebagai <em>Check-Out / Pulang</em>.</li>
+                    <li><strong>Jendela Scan:</strong> Scan hanya diproses di dalam jendela masuk (mulai&ndash;akhir scan masuk) atau jendela pulang (mulai&ndash;akhir scan pulang). Scan di luar jendela dan scan pada hari libur ditolak tanpa membuat data absensi.</li>
+                    <li><strong>Periode Masuk:</strong> Scan pertama di jendela masuk menentukan status <em>Hadir Tepat Waktu</em> atau <em>Terlambat</em>.</li>
+                    <li><strong>Toleransi:</strong> Keterlambatan dan pulang cepat dihitung dalam menit. Scan masuk melewati toleransi menjadi <em>Terlambat</em>; scan pulang lebih awal melewati toleransi menjadi <em>Pulang Cepat</em>.</li>
+                    <li><strong>Scan Pulang Tanpa Scan Masuk:</strong> Disimpan sebagai <em>Perlu Tinjauan</em> karena tidak ada bukti scan masuk.</li>
                 </ul>
             </div>
         </div>
@@ -101,24 +102,32 @@
 
                 <div class="space-y-1.5 text-xs pt-1 border-t border-[var(--border-subtle)] font-mono">
                     <div class="flex items-center justify-between">
-                        <span class="text-[var(--text-secondary)] font-sans text-[11px]">Awal Buka Scan:</span>
-                        <span class="text-[var(--text)] font-semibold text-xs">{{ substr($sc->check_in_start, 0, 5) }} WIB</span>
+                        <span class="text-[var(--text-secondary)] font-sans text-[11px]">Scan Masuk:</span>
+                        <span class="text-[var(--text)] font-semibold text-xs">
+                            {{ substr($sc->check_in_start, 0, 5) }}&ndash;{{ $sc->effectiveCheckInEnd() ? substr($sc->effectiveCheckInEnd(), 0, 5) : '-' }} WIB
+                        </span>
                     </div>
                     <div class="flex items-center justify-between">
                         <span class="text-[var(--text-secondary)] font-sans text-[11px]">Jam Masuk Resmi:</span>
                         <span class="text-emerald-700 font-bold text-xs">{{ substr($sc->start_at, 0, 5) }} WIB</span>
                     </div>
                     <div class="flex items-center justify-between">
-                        <span class="text-[var(--text-secondary)] font-sans text-[11px]">Batas Toleransi:</span>
-                        <span class="text-amber-700 font-bold text-xs">{{ substr($sc->late_after, 0, 5) }} WIB</span>
+                        <span class="text-[var(--text-secondary)] font-sans text-[11px]">Toleransi Terlambat:</span>
+                        <span class="text-amber-700 font-bold text-xs">{{ $sc->lateToleranceMinutes() }} menit</span>
                     </div>
                     <div class="flex items-center justify-between">
-                        <span class="text-[var(--text-secondary)] font-sans text-[11px]">Awal Jendela Pulang:</span>
-                        <span class="text-blue-700 font-bold text-xs">{{ substr($sc->check_out_start, 0, 5) }} WIB</span>
+                        <span class="text-[var(--text-secondary)] font-sans text-[11px]">Scan Pulang:</span>
+                        <span class="text-blue-700 font-bold text-xs">
+                            {{ substr($sc->check_out_start, 0, 5) }}&ndash;{{ $sc->effectiveCheckOutEnd() ? substr($sc->effectiveCheckOutEnd(), 0, 5) : '-' }} WIB
+                        </span>
                     </div>
                     <div class="flex items-center justify-between">
-                        <span class="text-[var(--text-secondary)] font-sans text-[11px]">Batas Akhir Pulang:</span>
+                        <span class="text-[var(--text-secondary)] font-sans text-[11px]">Jam Pulang Resmi:</span>
                         <span class="text-[var(--text)] font-semibold text-xs">{{ substr($sc->end_at, 0, 5) }} WIB</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[var(--text-secondary)] font-sans text-[11px]">Toleransi Pulang Cepat:</span>
+                        <span class="text-amber-700 font-bold text-xs">{{ $sc->earlyLeaveToleranceMinutes() }} menit</span>
                     </div>
                     <div class="flex items-center justify-between">
                         <span class="text-[var(--text-secondary)] font-sans text-[11px]">Batas Alpa:</span>
@@ -317,7 +326,7 @@
                     <h3 class="text-sm font-bold text-[var(--text)]">
                         Ubah Jadwal Hari <span x-text="activeSchedule.day_name"></span>
                     </h3>
-                    <p class="text-[11px] text-[var(--text-secondary)] mt-0.5">Perbarui ambang jam masuk dan pulang</p>
+                    <p class="text-[11px] text-[var(--text-secondary)] mt-0.5">Atur jendela scan masuk/pulang dan toleransi menit</p>
                 </div>
                 <button type="button" @click="editModal = false" class="text-[var(--text-muted)] hover:text-[var(--text)] p-1 rounded transition-colors" aria-label="Tutup">
                     <svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -329,39 +338,63 @@
                 @method('PUT')
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="block font-semibold text-[var(--text)] mb-1">Awal Buka Scan</label>
-                        <input type="text" name="check_in_start" x-model="activeSchedule.check_in_start" required
+                        <label class="block font-semibold text-[var(--text)] mb-1">Mulai Scan Masuk</label>
+                        <input type="text" name="check_in_start" x-model="activeSchedule.check_in_start" required placeholder="06:00"
                             class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 font-mono text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)]">
                     </div>
                     <div>
-                        <label class="block font-semibold text-[var(--text)] mb-1">Jam Masuk</label>
-                        <input type="text" name="start_at" x-model="activeSchedule.start_at" required
+                        <label class="block font-semibold text-[var(--text)] mb-1">Akhir Scan Masuk</label>
+                        <input type="text" name="check_in_end" x-model="activeSchedule.check_in_end" placeholder="09:00"
                             class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 font-mono text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)]">
                     </div>
-                </div>
-
-                <div>
-                    <label class="block font-semibold text-[var(--text)] mb-1">Batas Toleransi Terlambat</label>
-                    <input type="text" name="late_after" x-model="activeSchedule.late_after" required
-                        class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 font-mono text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)]">
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="block font-semibold text-[var(--text)] mb-1">Awal Jendela Pulang</label>
-                        <input type="text" name="check_out_start" x-model="activeSchedule.check_out_start" required
+                        <label class="block font-semibold text-[var(--text)] mb-1">Jam Masuk Resmi</label>
+                        <input type="text" name="start_at" x-model="activeSchedule.start_at" required placeholder="07:00"
                             class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 font-mono text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)]">
                     </div>
                     <div>
-                        <label class="block font-semibold text-[var(--text)] mb-1">Batas Akhir Pulang</label>
-                        <input type="text" name="end_at" x-model="activeSchedule.end_at" required
+                        <label class="block font-semibold text-[var(--text)] mb-1">Toleransi Terlambat (menit)</label>
+                        <input type="number" name="late_tolerance_minutes" x-model.number="activeSchedule.late_tolerance_minutes" min="0" max="240" step="1" placeholder="15"
                             class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 font-mono text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)]">
                     </div>
                 </div>
 
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-semibold text-[var(--text)] mb-1">Mulai Scan Pulang</label>
+                        <input type="text" name="check_out_start" x-model="activeSchedule.check_out_start" required placeholder="14:00"
+                            class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 font-mono text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)]">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-[var(--text)] mb-1">Akhir Scan Pulang</label>
+                        <input type="text" name="check_out_end" x-model="activeSchedule.check_out_end" placeholder="17:00"
+                            class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 font-mono text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)]">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-semibold text-[var(--text)] mb-1">Jam Pulang Resmi</label>
+                        <input type="text" name="end_at" x-model="activeSchedule.end_at" required placeholder="16:00"
+                            class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 font-mono text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)]">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-[var(--text)] mb-1">Toleransi Pulang Cepat (menit)</label>
+                        <input type="number" name="early_leave_tolerance_minutes" x-model.number="activeSchedule.early_leave_tolerance_minutes" min="0" max="240" step="1" placeholder="0"
+                            class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 font-mono text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)]">
+                    </div>
+                </div>
+
+                <p class="text-[10px] text-[var(--text-muted)] leading-relaxed">
+                    Scan di luar jendela masuk/pulang ditolak. Hari libur tidak membuat data absensi. Toleransi dihitung dalam menit.
+                </p>
+
                 <div>
                     <label class="block font-semibold text-[var(--text)] mb-1">Batas Alpa (opsional)</label>
-                    <input type="text" name="alpa_cutoff" x-model="activeSchedule.alpa_cutoff" placeholder="Kosongkan untuk otomatis setelah jam pulang"
+                    <input type="text" name="alpa_cutoff" x-model="activeSchedule.alpa_cutoff" placeholder="Kosongkan untuk otomatis setelah akhir scan pulang"
                         class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 font-mono text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)]">
                     <p class="text-[10px] text-[var(--text-muted)] mt-1">Siswa tanpa scan setelah batas ini dianggap Alpa pada laporan.</p>
                 </div>

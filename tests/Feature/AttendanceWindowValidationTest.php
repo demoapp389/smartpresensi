@@ -47,10 +47,13 @@ class AttendanceWindowValidationTest extends TestCase
             'day_name' => 'Rabu',
             'day_of_week' => 3,
             'check_in_start' => '06:00:00',
+            'check_in_end' => '09:00:00',
             'start_at' => '07:00:00',
-            'late_after' => '07:15:00',
+            'late_tolerance_minutes' => 15,
             'check_out_start' => '14:00:00',
+            'check_out_end' => '17:00:00',
             'end_at' => '16:00:00',
+            'early_leave_tolerance_minutes' => 0,
             'is_active' => true,
         ]);
     }
@@ -146,7 +149,7 @@ class AttendanceWindowValidationTest extends TestCase
         $this->assertSame('tepat_waktu', $attendance->check_out_status);
     }
 
-    public function test_scan_after_end_at_is_rejected_without_changing_attendance(): void
+    public function test_scan_after_check_out_end_is_rejected_without_changing_attendance(): void
     {
         $student = $this->createStudent('7110');
         $attendance = Attendance::create([
@@ -158,18 +161,92 @@ class AttendanceWindowValidationTest extends TestCase
             'status' => 'hadir',
             'policy_version' => 'v1.0',
         ]);
-        $log = $this->createLog($student->nis, '2026-10-14 16:00:01');
+        $log = $this->createLog($student->nis, '2026-10-14 17:00:01');
 
         $result = app(AttendanceProcessingService::class)->processLog($log);
 
         $this->assertNull($result);
         $this->assertSame('rejected', $log->fresh()->status);
-        $this->assertStringContainsString('jam pulang', $log->fresh()->processing_note);
+        $this->assertStringContainsString('jendela pulang', $log->fresh()->processing_note);
 
         $attendance->refresh();
         $this->assertNull($attendance->check_out_at);
         $this->assertSame('hadir', $attendance->status);
         $this->assertSame('belum_absen', $attendance->check_out_status);
+    }
+
+    public function test_scan_at_check_out_end_is_accepted_as_checkout(): void
+    {
+        $student = $this->createStudent('7116');
+        $attendance = Attendance::create([
+            'student_id' => $student->id,
+            'school_date' => '2026-10-14',
+            'check_in_at' => '2026-10-14 07:05:00',
+            'check_in_status' => 'tepat_waktu',
+            'check_out_status' => 'belum_absen',
+            'status' => 'hadir',
+            'policy_version' => 'v1.0',
+        ]);
+        $log = $this->createLog($student->nis, '2026-10-14 17:00:00');
+
+        $result = app(AttendanceProcessingService::class)->processLog($log);
+
+        $this->assertNotNull($result);
+        $this->assertSame('processed', $log->fresh()->status);
+
+        $attendance->refresh();
+        $this->assertSame('17:00:00', $attendance->check_out_at->format('H:i:s'));
+        $this->assertSame('tepat_waktu', $attendance->check_out_status);
+    }
+
+    public function test_scan_between_check_in_end_and_check_out_start_is_rejected(): void
+    {
+        $student = $this->createStudent('7114');
+        $log = $this->createLog($student->nis, '2026-10-14 13:00:00');
+
+        $attendance = app(AttendanceProcessingService::class)->processLog($log);
+
+        $this->assertNull($attendance);
+        $this->assertSame('rejected', $log->fresh()->status);
+        $this->assertStringContainsString('di luar jendela scan', $log->fresh()->processing_note);
+        $this->assertDatabaseCount('attendances', 0);
+    }
+
+    public function test_scan_at_check_in_end_is_accepted_as_late_check_in(): void
+    {
+        $student = $this->createStudent('7115');
+        $log = $this->createLog($student->nis, '2026-10-14 09:00:00');
+
+        $attendance = app(AttendanceProcessingService::class)->processLog($log);
+
+        $this->assertNotNull($attendance);
+        $this->assertSame('terlambat', $attendance->status);
+        $this->assertSame('terlambat', $attendance->check_in_status);
+        $this->assertSame(120, $attendance->late_minutes);
+    }
+
+    public function test_early_leave_tolerance_is_measured_in_minutes(): void
+    {
+        SchoolSchedule::where('day_of_week', 3)->update(['early_leave_tolerance_minutes' => 5]);
+
+        $withinTolerance = $this->createStudent('7117');
+        $beyondTolerance = $this->createStudent('7118');
+        $processing = app(AttendanceProcessingService::class);
+
+        $processing->processLog($this->createLog($withinTolerance->nis, '2026-10-14 07:05:00'));
+        $processing->processLog($this->createLog($withinTolerance->nis, '2026-10-14 15:55:00'));
+        $processing->processLog($this->createLog($beyondTolerance->nis, '2026-10-14 07:05:00'));
+        $processing->processLog($this->createLog($beyondTolerance->nis, '2026-10-14 15:54:00'));
+
+        $withinAttendance = $this->attendanceFor($withinTolerance);
+
+        $this->assertSame(5, $withinAttendance->early_leave_minutes);
+        $this->assertSame('tepat_waktu', $withinAttendance->check_out_status);
+
+        $beyondAttendance = $this->attendanceFor($beyondTolerance);
+
+        $this->assertSame(6, $beyondAttendance->early_leave_minutes);
+        $this->assertSame('pulang_cepat', $beyondAttendance->check_out_status);
     }
 
     public function test_check_in_only_records_presence_and_minutes_from_schedule_start(): void

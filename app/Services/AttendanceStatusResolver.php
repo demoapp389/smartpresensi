@@ -37,9 +37,7 @@ class AttendanceStatusResolver
 
     public function checkInStatus(CarbonInterface $checkInAt, SchoolSchedule $schedule): string
     {
-        $lateAfter = $this->scheduleMoment($schedule, 'late_after', $checkInAt);
-
-        return $checkInAt->greaterThan($lateAfter)
+        return $this->lateMinutes($checkInAt, $schedule) > $schedule->lateToleranceMinutes()
             ? self::CHECK_IN_LATE
             : self::CHECK_IN_ON_TIME;
     }
@@ -57,7 +55,7 @@ class AttendanceStatusResolver
 
     public function checkOutStatus(CarbonInterface $checkOutAt, SchoolSchedule $schedule): string
     {
-        return $this->earlyLeaveMinutes($checkOutAt, $schedule) > 0
+        return $this->earlyLeaveMinutes($checkOutAt, $schedule) > $schedule->earlyLeaveToleranceMinutes()
             ? self::CHECK_OUT_EARLY
             : self::CHECK_OUT_ON_TIME;
     }

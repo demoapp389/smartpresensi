@@ -16,10 +16,14 @@ class SchoolSchedule extends Model
         'day_name',
         'day_of_week',
         'check_in_start',
+        'check_in_end',
         'start_at',
         'late_after',
+        'late_tolerance_minutes',
         'check_out_start',
+        'check_out_end',
         'end_at',
+        'early_leave_tolerance_minutes',
         'alpa_cutoff',
         'effective_date',
         'is_active',
@@ -27,6 +31,8 @@ class SchoolSchedule extends Model
 
     protected $casts = [
         'day_of_week' => 'integer',
+        'late_tolerance_minutes' => 'integer',
+        'early_leave_tolerance_minutes' => 'integer',
         'effective_date' => 'date',
         'is_active' => 'boolean',
     ];
@@ -76,6 +82,52 @@ class SchoolSchedule extends Model
     }
 
     /**
+     * Akhir jendela scan masuk. Data lama yang belum memiliki kolom ini
+     * memakai awal jendela pulang agar perilakunya tidak berubah.
+     */
+    public function effectiveCheckInEnd(): ?string
+    {
+        return $this->check_in_end ?? $this->check_out_start;
+    }
+
+    /**
+     * Akhir jendela scan pulang. Data lama yang belum memiliki kolom ini
+     * memakai jam pulang resmi.
+     */
+    public function effectiveCheckOutEnd(): ?string
+    {
+        return $this->check_out_end ?? $this->end_at;
+    }
+
+    /**
+     * Toleransi keterlambatan dalam menit. Bila kolom baru masih kosong,
+     * turunkan dari selisih late_after - start_at (perilaku lama).
+     */
+    public function lateToleranceMinutes(): int
+    {
+        if ($this->late_tolerance_minutes !== null) {
+            return max(0, (int) $this->late_tolerance_minutes);
+        }
+
+        if (! $this->start_at || ! $this->late_after) {
+            return 0;
+        }
+
+        $startAt = Carbon::parse('1970-01-01 '.$this->start_at);
+        $lateAfter = Carbon::parse('1970-01-01 '.$this->late_after);
+
+        return max(0, (int) floor(abs($lateAfter->diffInMinutes($startAt))));
+    }
+
+    /**
+     * Toleransi pulang cepat dalam menit.
+     */
+    public function earlyLeaveToleranceMinutes(): int
+    {
+        return max(0, (int) ($this->early_leave_tolerance_minutes ?? 0));
+    }
+
+    /**
      * Batas waktu scan masuk sebelum siswa dianggap Alpa.
      */
     public function alpaCutoffForDate(CarbonInterface $date): Carbon
@@ -89,7 +141,7 @@ class SchoolSchedule extends Model
         $bufferMinutes = max(1, (int) config('attendance.alpa_buffer_minutes', 5));
 
         return $date->copy()
-            ->setTimeFromTimeString($this->end_at)
+            ->setTimeFromTimeString($this->effectiveCheckOutEnd() ?: $this->end_at)
             ->addMinutes($bufferMinutes);
     }
 }

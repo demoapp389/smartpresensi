@@ -384,7 +384,8 @@ class DeviceManagementPagesTest extends TestCase
             'active' => true,
         ]);
 
-        $occurredAt = now()->subDays(2)->setTime(7, 5);
+        // Gunakan hari Senin minggu lalu agar cocok dengan jadwal aktif dan tetap "stale".
+        $occurredAt = now()->startOfWeek()->subWeek()->setTime(7, 5);
         $log = AttendanceLog::create([
             'device_id' => $this->device->id,
             'machine_user_id' => 'PIN-LAMA',
@@ -433,7 +434,8 @@ class DeviceManagementPagesTest extends TestCase
             'student_id' => $oldStudent->id,
         ]);
 
-        $occurredAt = now()->subDays(2)->setTime(7, 6);
+        // Gunakan hari Senin minggu lalu agar cocok dengan jadwal aktif dan tetap "stale".
+        $occurredAt = now()->startOfWeek()->subWeek()->setTime(7, 6);
         $log = AttendanceLog::create([
             'device_id' => $this->device->id,
             'machine_user_id' => 'PIN-PINDAH',

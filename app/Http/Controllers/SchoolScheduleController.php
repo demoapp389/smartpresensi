@@ -33,22 +33,26 @@ class SchoolScheduleController extends Controller
     {
         $validated = $request->validate([
             'check_in_start' => ['required', 'date_format:H:i,H:i:s'],
+            'check_in_end' => ['nullable', 'date_format:H:i,H:i:s'],
             'start_at' => ['required', 'date_format:H:i,H:i:s'],
-            'late_after' => ['required', 'date_format:H:i,H:i:s'],
+            'late_after' => ['nullable', 'date_format:H:i,H:i:s'],
+            'late_tolerance_minutes' => ['nullable', 'integer', 'min:0', 'max:240'],
             'check_out_start' => ['required', 'date_format:H:i,H:i:s'],
+            'check_out_end' => ['nullable', 'date_format:H:i,H:i:s'],
             'end_at' => ['required', 'date_format:H:i,H:i:s'],
+            'early_leave_tolerance_minutes' => ['nullable', 'integer', 'min:0', 'max:240'],
             'alpa_cutoff' => ['nullable', 'date_format:H:i,H:i:s', function (string $attribute, mixed $value, Closure $fail) use ($request): void {
-                $endAt = $request->input('end_at');
+                $checkOutEnd = $request->input('check_out_end') ?: $request->input('end_at');
 
-                if (is_string($value) && is_string($endAt) && $value !== '' && $endAt !== '' && strtotime($value) <= strtotime($endAt)) {
-                    $fail('Batas waktu Alpa harus setelah batas akhir pulang.');
+                if (is_string($value) && is_string($checkOutEnd) && $value !== '' && $checkOutEnd !== '' && strtotime($value) <= strtotime($checkOutEnd)) {
+                    $fail('Batas waktu Alpa harus setelah batas akhir scan pulang.');
                 }
             }],
             'day_pattern' => ['required', 'string', 'max:50'],
             'is_active' => ['boolean'],
         ]);
 
-        $this->assertScheduleTimeOrder($validated);
+        $this->assertScheduleTimeOrder($validated, $schedule);
 
         $before = $schedule->toArray();
         $validated['is_active'] = $request->boolean('is_active');
@@ -63,24 +67,29 @@ class SchoolScheduleController extends Controller
     /**
      * @param  array<string, mixed>  $validated
      */
-    private function assertScheduleTimeOrder(array $validated): void
+    private function assertScheduleTimeOrder(array $validated, SchoolSchedule $schedule): void
     {
+        $checkInEnd = $validated['check_in_end'] ?? $schedule->check_in_end ?? $validated['check_out_start'];
+        $checkOutEnd = $validated['check_out_end'] ?? $schedule->check_out_end ?? $validated['end_at'];
+
         $times = [
             'check_in_start' => strtotime((string) $validated['check_in_start']),
             'start_at' => strtotime((string) $validated['start_at']),
-            'late_after' => strtotime((string) $validated['late_after']),
+            'check_in_end' => strtotime((string) $checkInEnd),
             'check_out_start' => strtotime((string) $validated['check_out_start']),
             'end_at' => strtotime((string) $validated['end_at']),
+            'check_out_end' => strtotime((string) $checkOutEnd),
         ];
 
         $isOrdered = $times['check_in_start'] <= $times['start_at']
-            && $times['start_at'] <= $times['late_after']
-            && $times['late_after'] <= $times['check_out_start']
-            && $times['check_out_start'] <= $times['end_at'];
+            && $times['start_at'] <= $times['check_in_end']
+            && $times['check_in_end'] <= $times['check_out_start']
+            && $times['check_out_start'] <= $times['end_at']
+            && $times['end_at'] <= $times['check_out_end'];
 
         if (! $isOrdered) {
             throw ValidationException::withMessages([
-                'check_in_start' => 'Urutan jam harus: awal check-in <= jam masuk <= batas terlambat <= awal pulang <= akhir pulang.',
+                'check_in_start' => 'Urutan jam harus: awal scan masuk <= jam masuk <= akhir scan masuk <= awal scan pulang <= jam pulang <= akhir scan pulang.',
             ]);
         }
     }
