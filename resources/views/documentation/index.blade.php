@@ -251,7 +251,7 @@
             'cat' => 'perangkat',
             'title' => 'Bagaimana memantau hasil sinkronisasi mesin?',
             'keywords' => 'riwayat sinkronisasi sync history berhasil gagal record',
-            'body' => 'Buka <strong>Mesin Fingerprint &rarr; Riwayat Sinkronisasi</strong>. Tabel mencatat waktu, mesin, jenis (Tes Koneksi, Sinkron Siswa, Sinkron Absensi), status (Berhasil/Gagal), jumlah record, keterangan hasil, dan operator pelaksana. Gunakan filter mesin/jenis/status untuk menelusuri kegagalan.',
+            'body' => 'Buka <strong>Mesin Fingerprint &rarr; Riwayat Sinkronisasi</strong>. Tabel mencatat waktu, mesin, jenis (Tes Koneksi, Sinkron Siswa, Sinkron Absensi), status (Berhasil/Gagal), jumlah record, keterangan hasil, dan operator pelaksana. Gunakan filter mesin/jenis/status untuk menelusuri kegagalan. Sinkronisasi otomatis rutin diredam: keberhasilan dengan sedikit record hanya dicatat sebagai heartbeat berkala, sedangkan backlog besar, kegagalan, dan pemulihan selalu muncul.',
         ],
 
         // ───────────── WHATSAPP ─────────────

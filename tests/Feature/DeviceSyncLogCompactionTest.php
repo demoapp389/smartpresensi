@@ -63,7 +63,7 @@ class DeviceSyncLogCompactionTest extends TestCase
         $this->assertNull($service->recordAttendanceSync($this->device, 'success', 0, 'Masih tidak ada log baru.'));
         $this->assertSame(2, DeviceSyncLog::count());
 
-        $service->recordAttendanceSync($this->device, 'success', 5, 'Ada 5 log baru.');
+        $service->recordAttendanceSync($this->device, 'success', 15, 'Ada 15 log baru.');
         $this->assertSame(3, DeviceSyncLog::count());
 
         $this->assertNull($service->recordAttendanceSync($this->device, 'success', 0, 'Tidak ada log baru.'));
@@ -81,5 +81,36 @@ class DeviceSyncLogCompactionTest extends TestCase
         $service->recordAttendanceSync($this->device, 'failed', 0, 'Gagal manual lagi.', [], $operator->id);
 
         $this->assertSame(4, DeviceSyncLog::where('device_id', $this->device->id)->count());
+    }
+
+    public function test_automatic_success_with_few_records_is_throttled(): void
+    {
+        $service = app(DeviceSyncLogService::class);
+
+        $this->assertNotNull($service->recordAttendanceSync($this->device, 'success', 1, 'Ada 1 log baru.'));
+        $this->assertNull($service->recordAttendanceSync($this->device, 'success', 2, 'Ada 2 log baru.'));
+        $this->assertNull($service->recordAttendanceSync($this->device, 'success', 3, 'Ada 3 log baru.'));
+        $this->assertSame(1, DeviceSyncLog::count());
+
+        // Backlog besar tetap dicatat walau baru saja ada sinkronisasi.
+        $this->assertNotNull($service->recordAttendanceSync($this->device, 'success', 20, 'Ada 20 log baru.'));
+        $this->assertSame(2, DeviceSyncLog::count());
+
+        // Setelah interval heartbeat lewat, record sedikit dicatat lagi.
+        $this->travel(61)->minutes();
+        $this->assertNotNull($service->recordAttendanceSync($this->device, 'success', 1, 'Ada 1 log baru.'));
+        $this->assertSame(3, DeviceSyncLog::count());
+    }
+
+    public function test_automatic_success_after_failure_is_always_recorded(): void
+    {
+        $service = app(DeviceSyncLogService::class);
+
+        $service->recordAttendanceSync($this->device, 'success', 1, 'Ada 1 log baru.');
+        $service->recordAttendanceSync($this->device, 'failed', 0, 'Mesin offline.');
+        $recovery = $service->recordAttendanceSync($this->device, 'success', 1, 'Mesin pulih.');
+
+        $this->assertNotNull($recovery);
+        $this->assertSame(3, DeviceSyncLog::count());
     }
 }

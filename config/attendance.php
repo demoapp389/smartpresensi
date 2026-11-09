@@ -15,4 +15,10 @@ return [
 
     // Batas usia jejak sukses terakhir connector sebelum mesin dianggap offline.
     'connector_status_stale_seconds' => max(1, (int) env('CONNECTOR_STATUS_STALE_SECONDS', 90)),
+
+    // Peredaman riwayat sinkronisasi otomatis: keberhasilan dengan record sedikit
+    // hanya dicatat sebagai heartbeat tiap N menit, sedangkan backlog besar dan
+    // pemulihan setelah gagal selalu dicatat.
+    'sync_log_success_interval_minutes' => max(1, (int) env('SYNC_LOG_SUCCESS_INTERVAL_MINUTES', 60)),
+    'sync_log_significant_records' => max(1, (int) env('SYNC_LOG_SIGNIFICANT_RECORDS', 10)),
 ];
