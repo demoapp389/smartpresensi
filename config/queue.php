@@ -40,9 +40,10 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            // Harus lebih besar dari timeout job terpanjang (SendWhatsAppBroadcastJob = 1800 detik)
-            // agar job panjang tidak dianggap macet dan diambil ulang oleh worker lain.
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 1860),
+            // Harus lebih besar dari timeout job terpanjang (SyncAllDevicesAttendance
+            // dan BulkDeviceOperation = 3600 detik) agar job panjang tidak dianggap
+            // macet dan diambil ulang oleh worker lain.
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 3900),
             'after_commit' => false,
         ],
 

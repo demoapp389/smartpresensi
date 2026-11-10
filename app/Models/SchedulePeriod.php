@@ -6,6 +6,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Periode jadwal khusus (mis. Ramadan) yang menimpa jadwal mingguan hanya
@@ -29,6 +30,14 @@ class SchedulePeriod extends Model
         'end_date' => 'date',
         'is_active' => 'boolean',
     ];
+
+    protected static function booted(): void
+    {
+        $flushResolvedScheduleCache = fn () => Cache::increment('school-schedule:version');
+
+        static::saved($flushResolvedScheduleCache);
+        static::deleted($flushResolvedScheduleCache);
+    }
 
     /**
      * @return HasMany<SchoolSchedule, $this>

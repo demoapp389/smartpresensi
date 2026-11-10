@@ -129,7 +129,7 @@ class DeviceManagementPagesTest extends TestCase
     {
         $connector = $this->createMock(FingerprintConnectorService::class);
         $connector->expects($this->never())->method('testConnection');
-        $connector->expects($this->never())->method('syncStudents');
+        $connector->expects($this->never())->method('syncMachineUsers');
         $this->app->instance(FingerprintConnectorService::class, $connector);
 
         $soap = $this->createMock(SoapFingerprintService::class);
@@ -235,6 +235,7 @@ class DeviceManagementPagesTest extends TestCase
 
         $response->assertOk();
         $response->assertDownload('connector_config.ini');
+        $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
 
         $body = $response->streamedContent();
         $this->assertStringContainsString('[device:', $body);

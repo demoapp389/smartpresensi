@@ -41,4 +41,25 @@ class ApiRateLimitTest extends TestCase
         $this->assertNotSame(429, $firstStatus);
         $this->assertSame(429, $lastStatus);
     }
+
+    public function test_whatsapp_webhook_is_rate_limited_per_ip(): void
+    {
+        config()->set('whatsapp.webhook_secret', 'shared-pass');
+
+        $firstStatus = null;
+        $lastStatus = null;
+
+        for ($i = 0; $i < 121; $i++) {
+            $lastStatus = $this->postJson(
+                route('api.whatsapp.webhook.handle'),
+                ['id' => 'unknown-id', 'status' => 'delivered'],
+                ['X-Webhook-Token' => 'shared-pass'],
+            )->getStatusCode();
+
+            $firstStatus ??= $lastStatus;
+        }
+
+        $this->assertNotSame(429, $firstStatus);
+        $this->assertSame(429, $lastStatus);
+    }
 }

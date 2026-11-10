@@ -441,6 +441,23 @@ class StudentImportTest extends TestCase
         }
     }
 
+    public function test_import_rejects_corrupt_xlsx_without_leaking_internal_details(): void
+    {
+        $file = UploadedFile::fake()->createWithContent('rusak.xlsx', 'bukan berkas xlsx');
+
+        $response = $this->actingAs($this->admin)->post(route('students.import'), [
+            'file' => $file,
+        ]);
+
+        $response->assertRedirect(route('students.index'));
+        $response->assertSessionHasErrors('file');
+
+        $message = (string) session('errors')->first('file');
+        $this->assertStringContainsString('Gagal membaca isi file Excel', $message);
+        $this->assertStringNotContainsString(storage_path(), $message);
+        $this->assertStringNotContainsString('ZipArchive', $message);
+    }
+
     public function test_import_with_pin_but_without_device_records_row_error(): void
     {
         $file = $this->makeXlsxUpload(

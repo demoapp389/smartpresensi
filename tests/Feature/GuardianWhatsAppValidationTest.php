@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\WhatsApp\FonnteNumberValidationService;
 use App\Services\WhatsAppNotificationService;
 use Carbon\Carbon;
+use Illuminate\Contracts\Queue\Job;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
@@ -370,6 +371,55 @@ class GuardianWhatsAppValidationTest extends TestCase
 
         $this->assertSame('queued', $notification->status);
         $this->assertSame(0, $notification->attempts);
+    }
+
+    public function test_send_job_releases_itself_when_lock_is_held(): void
+    {
+        $guardian = Guardian::create([
+            'student_id' => $this->student->id,
+            'name' => 'Hasan',
+            'relationship' => 'Ayah',
+            'wa_number' => '081234567890',
+            'wa_status' => 'valid',
+            'wa_validated_at' => now(),
+            'consent_at' => now(),
+            'active' => true,
+        ]);
+
+        $attendance = Attendance::create([
+            'student_id' => $this->student->id,
+            'school_date' => Carbon::today(),
+            'status' => 'hadir',
+            'check_in_at' => now(),
+        ]);
+
+        $notification = NotificationLog::create([
+            'attendance_id' => $attendance->id,
+            'guardian_id' => $guardian->id,
+            'event_type' => 'check_in',
+            'idempotency_key' => 'lock-release-test-'.$attendance->id,
+            'template_name' => 'check_in',
+            'recipient_phone' => '6281234567890',
+            'payload' => [],
+            'status' => 'queued',
+            'queued_at' => now(),
+        ]);
+
+        $lock = Cache::lock('whatsapp-notification:'.$notification->id, 120);
+        $this->assertTrue($lock->get());
+
+        $queueJob = $this->mock(Job::class);
+        $queueJob->shouldReceive('release')->once()->with(10);
+
+        try {
+            $job = new SendWhatsAppNotificationJob($notification->id);
+            $job->job = $queueJob;
+            $job->handle();
+        } finally {
+            $lock->release();
+        }
+
+        $this->assertSame('queued', $notification->fresh()->status);
     }
 
     public function test_release_held_notifications_when_validation_succeeds(): void

@@ -98,9 +98,9 @@ class AttendanceRecordController extends Controller
             $query->where('check_out_status', $outStatus);
         }
 
-        // Data dikirim penuh (tanpa paginate): tabel memakai DataTables di sisi
-        // klien. Presensi sudah dibatasi per tanggal (default hari ini).
-        $attendances = $query->get();
+        // Paginasi server: satu hari bisa berisi seluruh siswa, dan rentang
+        // tanggal manual dapat memperbesar hasil. Hanya halaman aktif yang dimuat.
+        $attendances = $query->paginate($this->resolvePerPage(50))->withQueryString();
         $classes = Auth::user()?->isHomeroomTeacher() && $classId
             ? SchoolClass::where('id', $classId)->get()
             : SchoolClass::orderBy('name')->get();
@@ -471,7 +471,8 @@ class AttendanceRecordController extends Controller
         }
 
         $query = Attendance::with(['student.schoolClass', 'operator'])
-            ->orderBy('student_id');
+            ->orderBy('student_id')
+            ->orderBy('school_date');
         $attendanceStartDate = $this->periodService->startDate();
 
         if ($request->filled('month')) {
@@ -524,8 +525,6 @@ class AttendanceRecordController extends Controller
             $query->where('check_out_status', $outStatus);
         }
 
-        $records = $query->get();
-
         $headers = [
             'No',
             'Tanggal',
@@ -544,11 +543,19 @@ class AttendanceRecordController extends Controller
             'Nama Operator',
         ];
 
-        $rows = [];
-        $no = 1;
-        foreach ($records as $item) {
-            $rows[] = [
-                $no++,
+        // Hitung total lebih dulu untuk audit, lalu alirkan baris per chunk
+        // agar ekspor besar tidak menghidrasi seluruh model sekaligus.
+        $totalRows = (clone $query)->count();
+
+        $this->logAudit('export_attendance_record', 'Attendance', null, null, [
+            'format' => $format,
+            'period' => $periodLabel,
+            'total_rows' => $totalRows,
+        ]);
+
+        $mapRow = static function (Attendance $item, int $no): array {
+            return [
+                $no,
                 $item->school_date->format('d/m/Y'),
                 $item->student?->nis ?? '-',
                 $item->student?->name ?? '-',
@@ -564,16 +571,16 @@ class AttendanceRecordController extends Controller
                 $item->override_reason ?? '-',
                 $item->operator?->name ?? '-',
             ];
-        }
-
-        $this->logAudit('export_attendance_record', 'Attendance', null, null, [
-            'format' => $format,
-            'period' => $periodLabel,
-            'total_rows' => count($rows),
-        ]);
+        };
 
         if ($format === 'xlsx') {
             $filename = "rekap_absensi_{$periodLabel}.xlsx";
+            $rows = [];
+            $no = 1;
+
+            foreach ($query->lazy(500) as $item) {
+                $rows[] = $mapRow($item, $no++);
+            }
 
             return SimpleXlsxExporter::download(
                 $filename,
@@ -584,11 +591,9 @@ class AttendanceRecordController extends Controller
             );
         }
 
-        // Format CSV dengan sanitasi formula injection
+        // Format CSV dengan sanitasi formula injection, ditulis langsung ke
+        // output per baris tanpa menampung seluruh hasil di memori.
         $sanitizedHeaders = array_map([SimpleXlsxExporter::class, 'sanitizeCellValue'], $headers);
-        $sanitizedRows = array_map(function ($row) {
-            return array_map([SimpleXlsxExporter::class, 'sanitizeCellValue'], $row);
-        }, $rows);
 
         $filename = "rekap_absensi_{$periodLabel}.csv";
         $responseHeaders = [
@@ -596,13 +601,20 @@ class AttendanceRecordController extends Controller
             'Content-Disposition' => "attachment; filename=\"{$filename}\"",
         ];
 
-        return response()->stream(function () use ($sanitizedHeaders, $sanitizedRows) {
+        return response()->stream(function () use ($query, $sanitizedHeaders, $mapRow) {
             $file = fopen('php://output', 'w');
             fwrite($file, "\xEF\xBB\xBF");
             fputcsv($file, $sanitizedHeaders);
-            foreach ($sanitizedRows as $row) {
+
+            $no = 1;
+            foreach ($query->lazy(500) as $item) {
+                $row = array_map(
+                    [SimpleXlsxExporter::class, 'sanitizeCellValue'],
+                    $mapRow($item, $no++)
+                );
                 fputcsv($file, $row);
             }
+
             fclose($file);
         }, 200, $responseHeaders);
     }

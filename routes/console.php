@@ -28,6 +28,10 @@ Schedule::command('fingerprint:prune-resources')->dailyAt('03:30');
 // bila nomor wali tidak pernah divalidasi ulang.
 Schedule::command('whatsapp:expire-held-notifications')->hourly();
 
+// Kirim ulang notifikasi 'queued' yang tertahan (mis. lock job gagal) agar tidak
+// berhenti permanen tanpa pernah dicoba kembali.
+Schedule::command('whatsapp:sweep-queued')->everyFiveMinutes()->withoutOverlapping(10);
+
 // Materialisasi presensi tanpa scan menjadi perlu_tinjauan dan finalisasi Alpa H+1.
 Schedule::command('attendance:sync-pending')->everyTenMinutes()->withoutOverlapping(5);
 

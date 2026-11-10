@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 class SchoolSchedule extends Model
 {
@@ -41,6 +42,14 @@ class SchoolSchedule extends Model
         'is_active' => 'boolean',
     ];
 
+    protected static function booted(): void
+    {
+        $flushResolvedScheduleCache = fn () => Cache::increment('school-schedule:version');
+
+        static::saved($flushResolvedScheduleCache);
+        static::deleted($flushResolvedScheduleCache);
+    }
+
     /**
      * @return BelongsTo<SchedulePeriod, $this>
      */
@@ -70,10 +79,17 @@ class SchoolSchedule extends Model
      */
     public static function resolveForDate(CarbonInterface $date): ?self
     {
-        return static::resolveFrom(
-            $date,
-            static::query()->get(),
-            SchedulePeriod::query()->where('is_active', true)->get(),
+        $dateKey = $date->toDateString();
+        $version = (int) Cache::get('school-schedule:version', 0);
+
+        return Cache::remember(
+            "school-schedule:resolved:{$version}:{$dateKey}",
+            now()->addMinute(),
+            fn (): ?self => static::resolveFrom(
+                $date,
+                static::query()->get(),
+                SchedulePeriod::query()->where('is_active', true)->get(),
+            ),
         );
     }
 
@@ -151,7 +167,13 @@ class SchoolSchedule extends Model
             ? $day
             : Carbon::parse($day, 'Asia/Jakarta');
 
-        $schedule = static::resolveForDate($date);
+        // Muat jadwal & periode aktif sekali, lalu resolusi di memori. Versi
+        // lama memanggil resolveForDate(), hasPeriodCovering(), dan
+        // getActiveDayNumbers() yang masing-masing menembak query terpisah.
+        $schedules = static::query()->get();
+        $periods = SchedulePeriod::query()->where('is_active', true)->get();
+
+        $schedule = static::resolveFrom($date, $schedules, $periods);
 
         if ($schedule !== null) {
             return (bool) $schedule->is_active;
@@ -159,11 +181,16 @@ class SchoolSchedule extends Model
 
         // Periode khusus yang tidak mendefinisikan hari ini dianggap libur,
         // bukan kembali ke jadwal reguler.
-        if (static::hasPeriodCovering($date)) {
+        if ($periods->contains(fn (SchedulePeriod $period): bool => $period->coversDate($date))) {
             return false;
         }
 
-        $activeDays = static::getActiveDayNumbers();
+        $activeDays = $schedules
+            ->whereNull('period_id')
+            ->where('is_active', true)
+            ->pluck('day_of_week')
+            ->map(fn ($value): int => (int) $value)
+            ->all();
 
         // Jika belum ada jadwal yang dikonfigurasi sama sekali di database, fallback Senin-Sabtu (1-6)
         if (empty($activeDays)) {

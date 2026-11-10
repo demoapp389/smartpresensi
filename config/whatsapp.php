@@ -13,7 +13,9 @@ return [
     */
     'default' => env('WA_GATEWAY_PROVIDER', 'log'),
 
-    'school_name' => env('SCHOOL_NAME', 'SMA Negeri 1'),
+    // Buang spasi/koma di ujung agar nama sekolah tidak menghasilkan kalimat
+    // "di MAN 4 Sukabumi, pada tanggal ..." pada pesan WhatsApp.
+    'school_name' => trim((string) env('SCHOOL_NAME', 'SMA Negeri 1'), " \t\n\r\0\x0B,"),
 
     'retry_limit' => (int) env('WA_RETRY_LIMIT', 3),
 

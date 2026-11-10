@@ -6,6 +6,7 @@ use App\Models\NotificationLog;
 use App\Models\WhatsAppTemplate;
 use App\Support\WhatsAppHttp;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class FonnteDriver implements WhatsAppGatewayInterface
 {
@@ -81,25 +82,36 @@ class FonnteDriver implements WhatsAppGatewayInterface
                 'countryCode' => '62',
             ]);
 
-            if ($response->successful()) {
-                $data = $response->json();
-                $messageId = $data['id'][0] ?? ($data['process'] ?? null);
+            $data = $response->json();
+            $data = is_array($data) ? $data : [];
 
+            // Fonnte membalas HTTP 200 meskipun pengiriman ditolak. Status sebenarnya
+            // ada pada field status/Status; tanpa nilai true, pesan tidak pernah masuk
+            // antrean provider dan tidak boleh dicatat sebagai "sent".
+            if ($response->successful() && $this->isAcceptedByProvider($data)) {
                 return [
                     'success' => true,
-                    'message_id' => (string) $messageId,
+                    'message_id' => $this->extractMessageId($data),
                     'error' => null,
                     'raw' => $data,
                 ];
             }
 
-            Log::error('[FonnteDriver Error]', ['status' => $response->status(), 'body' => $response->body()]);
+            $reason = $response->successful()
+                ? $this->extractFailureReason($data)
+                : "HTTP {$response->status()}: ".$response->body();
+
+            Log::error('[FonnteDriver Error]', [
+                'status' => $response->status(),
+                'reason' => $reason,
+                'body' => $data !== [] ? $data : $response->body(),
+            ]);
 
             return [
                 'success' => false,
                 'message_id' => null,
-                'error' => "HTTP {$response->status()}: ".$response->body(),
-                'raw' => $response->json() ?? [],
+                'error' => $reason,
+                'raw' => $data,
             ];
         } catch (\Throwable $e) {
             Log::error('[FonnteDriver Exception]', ['message' => $e->getMessage()]);
@@ -111,5 +123,52 @@ class FonnteDriver implements WhatsAppGatewayInterface
                 'raw' => [],
             ];
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function isAcceptedByProvider(array $data): bool
+    {
+        $status = $data['status'] ?? $data['Status'] ?? null;
+
+        if ($status === true || $status === 1) {
+            return true;
+        }
+
+        return is_string($status)
+            && in_array(strtolower(trim($status)), ['true', '1', 'success', 'ok'], true);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function extractMessageId(array $data): ?string
+    {
+        $id = $data['id'] ?? null;
+
+        if (is_array($id)) {
+            $id = $id[0] ?? null;
+        }
+
+        if (! is_scalar($id) || trim((string) $id) === '') {
+            return null;
+        }
+
+        return (string) $id;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function extractFailureReason(array $data): string
+    {
+        $reason = $data['reason'] ?? $data['detail'] ?? $data['message'] ?? null;
+
+        if (! is_scalar($reason) || trim((string) $reason) === '') {
+            return 'Fonnte menolak pengiriman tanpa alasan yang jelas.';
+        }
+
+        return Str::limit(trim((string) $reason), 300);
     }
 }

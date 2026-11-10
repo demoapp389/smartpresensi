@@ -10,6 +10,7 @@ use App\Models\SchoolClass;
 use App\Models\Student;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Tests\TestCase;
 
@@ -313,35 +314,32 @@ class Phase2FeaturesTest extends TestCase
         }
     }
 
-    public function test_raw_log_page_renders_client_side_datatables_without_server_pagination(): void
+    public function test_raw_log_page_uses_server_side_pagination(): void
     {
         $admin = User::where('role', 'admin')->first();
 
         $response = $this->actingAs($admin)->get(route('logs.raw'));
 
         $response->assertOk();
-
-        // Data dikirim penuh ke DataTables sisi klien, bukan paginasi server.
-        $response->assertViewHas('logs', fn ($logs) => $logs instanceof Collection);
+        $response->assertViewHas('logs', fn ($logs) => $logs instanceof LengthAwarePaginator);
 
         $html = $response->getContent();
-        $this->assertStringContainsString('data-datatable', $html);
-        $this->assertStringContainsString('data-toolbar-filter="#raw-filter"', $html);
-        $this->assertStringNotContainsString('Halaman 1 dari', $html);
+        $this->assertStringNotContainsString('data-datatable', $html);
+        $this->assertStringContainsString('Menampilkan', $html);
     }
 
-    public function test_unmapped_log_page_renders_client_side_datatables_without_server_pagination(): void
+    public function test_unmapped_log_page_uses_server_side_pagination(): void
     {
         $admin = User::where('role', 'admin')->first();
 
         $response = $this->actingAs($admin)->get(route('logs.unmapped'));
 
         $response->assertOk();
-        $response->assertViewHas('unmappedLogs', fn ($logs) => $logs instanceof Collection);
+        $response->assertViewHas('unmappedLogs', fn ($logs) => $logs instanceof LengthAwarePaginator);
 
         $html = $response->getContent();
-        $this->assertStringContainsString('data-toolbar-filter="#unmapped-filter"', $html);
-        $this->assertStringNotContainsString('Halaman 1 dari', $html);
+        $this->assertStringNotContainsString('data-datatable', $html);
+        $this->assertStringContainsString('Menampilkan', $html);
     }
 
     public function test_correction_page_renders_client_side_datatables_without_server_pagination(): void

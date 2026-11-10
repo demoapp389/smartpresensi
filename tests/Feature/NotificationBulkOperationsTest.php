@@ -11,6 +11,7 @@ use App\Models\Student;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -226,6 +227,15 @@ class NotificationBulkOperationsTest extends TestCase
         $response->assertSee('Dibaca');
         $response->assertDontSee('Delivered');
         $response->assertDontSee('Failed');
+    }
+
+    public function test_outbox_uses_server_side_pagination(): void
+    {
+        $response = $this->actingAs($this->operator)->get(route('notifications.index'));
+
+        $response->assertOk();
+        $response->assertViewHas('notifications', fn ($notifications) => $notifications instanceof LengthAwarePaginator);
+        $this->assertStringNotContainsString('data-datatable', $response->getContent());
     }
 
     public function test_status_counts_helper_groups_by_status(): void

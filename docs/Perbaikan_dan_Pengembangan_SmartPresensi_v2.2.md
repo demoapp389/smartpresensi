@@ -164,11 +164,33 @@ Tujuan: pengguna memindahkan/memasang SmartPresensi ke PC lain tanpa kebingungan
 - Gunakan MySQL/MariaDB InnoDB sesuai versi yang didukung aplikasi; tidak perlu mengganti database hanya karena ada 1.000 siswa.
 - Rancang untuk pertumbuhan minimal 5–10 tahun. Estimasi ilustratif 1.000 siswa × 2 scan/hari × 220 hari/tahun = 440.000 scan/tahun, atau 4,4 juta scan dalam 10 tahun; volume nyata dapat berbeda.
 - Audit indeks berdasarkan query nyata: waktu presensi, siswa, perangkat, pemetaan PIN, status dan laporan; hindari N+1 query dan gunakan pagination serta ekspor bertahap.
+- Status implementasi fase optimasi: daftar audit, raw log, log unmapped, riwayat presensi, dan outbox WhatsApp memakai pagination server; ekspor presensi mengalirkan baris per chunk; tren dashboard diagregasi di SQL; indeks `attendances.check_out_status` dan `audit_logs.created_at` ditambahkan; aset font eksternal Google Fonts dihapus agar tidak memblokir render.
+
+### Status implementasi hardening keamanan dan infra (Fase 3)
+
+- Endpoint webhook WhatsApp (GET verifikasi dan POST status) dibatasi 120 request/menit per IP.
+- Endpoint ingest connector membatasi maksimum 500 log per request agar token yang disalahgunakan tidak membanjiri memori/database.
+- Sesi pengguna yang akunnya dinonaktifkan langsung diputus melalui middleware `EnsureUserIsActive`; perubahan status tidak lagi menunggu pengguna logout.
+- Sistem menolak menurunkan, menonaktifkan, atau menghapus Administrator aktif terakhir agar tidak terjadi lockout.
+- Pesan kegagalan impor Excel tidak lagi memuat detail exception/path server; detail dicatat di log aplikasi.
+- Unduhan `connector_config.ini` memakai `Cache-Control: no-store`; berkas lokal itu sudah diabaikan oleh `connector/.gitignore` agar token tidak ikut ter-commit.
+- Template Nginx menambahkan `server_tokens off`, `Permissions-Policy`, `X-Permitted-Cross-Domain-Policies`, dan `fastcgi_hide_header X-Powered-By`.
+- Unit systemd worker, worker long-running, scheduler, dan connector memakai sandboxing dasar (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`, `ProtectHome`, `ProtectKernelTunables`, dan sejenisnya).
+- `app:preflight` memberi peringatan untuk `SESSION_ENCRYPT=false`, cookie HTTPS yang belum aman, `MAIL_MAILER=log`, dan webhook WhatsApp tanpa secret.
 - Terapkan unique key/idempotency log sesuai kemampuan identifikasi transaksi perangkat, tanpa menyamakan PIN antarperangkat; jangan membuat dedupe berdasarkan waktu saja.
 - Pisahkan log mentah, hasil presensi resmi, outbox WA dan log teknis; tetapkan retensi log teknis tanpa menghapus riwayat resmi sembarangan.
 - Gunakan transaksi database untuk operasi kritis, migration yang bisa diuji/rollback, serta backup terjadwal dan restore drill pada lingkungan terpisah.
 - Lakukan load test realistis untuk >=1.000 siswa, beberapa mesin scan bersamaan, beberapa PC operator, dan antrean WA; ukur p95 response, backlog, DB growth, error serta kehilangan/duplikasi transaksi sebelum mengklaim performa memadai.
 - Pastikan backup dan skenario recovery tidak merusak validasi nomor WA, checkpoint sinkronisasi, maupun pemetaan siswa.
+
+### Status implementasi perapian kode dan infrastruktur (Fase 4)
+
+- View mati `welcome.blade.php` dan `vendor/pagination/default.blade.php` dihapus karena tidak pernah dirender.
+- Method `@deprecated` `FingerprintConnectorService::syncStudents()` dihapus; semua sinkronisasi memakai `syncMachineUsers()`.
+- Query database yang masih berada di view dipindahkan ke controller (`students.index` untuk jumlah wali pending, `reports.print` untuk jadwal harian).
+- Aturan dan pesan validasi formulir pengguna disatukan dalam satu sumber agar `store()` dan `update()` tidak menyimpang.
+- `.gitignore` dibersihkan dari entri yang berkasnya sudah tidak ada (`gentelella-master/`, `storage/t.txt`) dan duplikasi `connector/python_path.txt`.
+- `deploy/templates/env.template` (dipakai wizard Windows) diselaraskan dengan `.env.example`: `SESSION_ENCRYPT=true`, `DB_QUEUE_RETRY_AFTER=3900`, dan kunci `ATTENDANCE_*` yang sebelumnya hilang.
 
 ## 13. Tahapan eksekusi (urutan prioritas)
 

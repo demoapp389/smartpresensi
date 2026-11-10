@@ -369,7 +369,7 @@ set_env DB_PORT "$DB_PORT" "$ENV_FILE"
 set_env DB_DATABASE "$DB_NAME" "$ENV_FILE"
 set_env DB_USERNAME "$DB_USER" "$ENV_FILE"
 set_env_quoted DB_PASSWORD "$DB_PASSWORD" "$ENV_FILE"
-set_env DB_QUEUE_RETRY_AFTER 3720 "$ENV_FILE"
+set_env DB_QUEUE_RETRY_AFTER 3900 "$ENV_FILE"
 set_env CONNECTOR_PRIMARY_DRIVER python "$ENV_FILE"
 set_env CONNECTOR_PYTHON_BIN "$PYTHON_BIN" "$ENV_FILE"
 set_env CONNECTOR_LOCAL_API_URL "http://127.0.0.1:4371" "$ENV_FILE"
@@ -395,7 +395,7 @@ WA_PROVIDER_EFFECTIVE=${WA_PROVIDER_EFFECTIVE:-log}
 if [ "$WA_PROVIDER_EFFECTIVE" = "fonnte" ] && [ -z "$(env_get WA_FONNTE_TOKEN "$ENV_FILE")" ]; then
     warn "WA_FONNTE_TOKEN masih kosong. Isi di $ENV_FILE, lalu jalankan:"
     warn "  sudo -u $APP_OWNER $PHP_BIN $APP_DIR/artisan optimize:clear"
-    warn "  sudo systemctl restart smartpresensi-worker"
+    warn "  sudo systemctl restart smartpresensi-worker smartpresensi-worker-long"
 fi
 
 if [ "$WA_PROVIDER_EFFECTIVE" = "meta" ] && { [ -z "$(env_get WA_META_ACCESS_TOKEN "$ENV_FILE")" ] || [ -z "$(env_get WA_META_PHONE_NUMBER_ID "$ENV_FILE")" ]; }; then
@@ -534,6 +534,10 @@ if [ "$SKIP_SERVICES" -eq 0 ] && systemctl list-unit-files --type=service >/dev/
         /etc/systemd/system/smartpresensi-worker.service
     ok "Unit smartpresensi-worker terpasang."
 
+    render_template "$TEMPLATE_DIR/systemd/smartpresensi-worker-long.service" \
+        /etc/systemd/system/smartpresensi-worker-long.service
+    ok "Unit smartpresensi-worker-long terpasang."
+
     if [ "$SCHEDULER" = "systemd" ]; then
         render_template "$TEMPLATE_DIR/systemd/smartpresensi-scheduler.service" \
             /etc/systemd/system/smartpresensi-scheduler.service
@@ -572,11 +576,23 @@ if [ "$action" != "restart" ]; then
     exit 2
 fi
 
+LONG_UNIT=/etc/systemd/system/smartpresensi-worker-long.service
+
 case "$target" in
-    worker) units=(smartpresensi-worker) ;;
+    worker)
+        units=(smartpresensi-worker)
+        if [ -f "$LONG_UNIT" ]; then
+            units+=(smartpresensi-worker-long)
+        fi
+        ;;
     connector) units=(solutionx601-connector) ;;
     scheduler) units=(smartpresensi-scheduler) ;;
-    all) units=(smartpresensi-worker solutionx601-connector smartpresensi-scheduler) ;;
+    all)
+        units=(smartpresensi-worker solutionx601-connector smartpresensi-scheduler)
+        if [ -f "$LONG_UNIT" ]; then
+            units+=(smartpresensi-worker-long)
+        fi
+        ;;
     *)
         echo "Target tidak dikenal: $target" >&2
         exit 2
@@ -606,6 +622,7 @@ EOF
     cat > /etc/logrotate.d/smartpresensi <<EOF
 ${APP_DIR}/storage/logs/connector_service.log
 ${APP_DIR}/storage/logs/queue_worker_service.log
+${APP_DIR}/storage/logs/queue_worker_long_service.log
 ${APP_DIR}/storage/logs/scheduler.log {
     weekly
     rotate 4
@@ -620,7 +637,8 @@ EOF
     ok "Rotasi log layanan terpasang di /etc/logrotate.d/smartpresensi."
 
     systemctl enable --now smartpresensi-worker
-    ok "Queue worker aktif."
+    systemctl enable --now smartpresensi-worker-long
+    ok "Queue worker (default/validations) dan worker long-running aktif."
 
     if [ "$SCHEDULER" = "systemd" ]; then
         systemctl enable --now smartpresensi-scheduler
@@ -674,7 +692,7 @@ Langkah berikutnya:
   3. Uji koneksi mesin:
        sudo -u $APP_OWNER $PYTHON_BIN $APP_DIR/connector/zkconnector.py --test --ip=<IP_MESIN> --port=4370
   4. Status layanan:
-       sudo systemctl status nginx php8.3-fpm smartpresensi-worker solutionx601-connector
+       sudo systemctl status nginx php8.3-fpm smartpresensi-worker smartpresensi-worker-long solutionx601-connector
 
 Panduan lengkap: docs/PANDUAN_DEPLOYMENT_LINUX.md
 ==========================================================================

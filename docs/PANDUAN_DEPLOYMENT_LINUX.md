@@ -182,9 +182,9 @@ sudo bash deploy/linux/install.sh --check
 5. `php artisan key:generate` (bila `APP_KEY` kosong), `migrate --force`, `sp:create-admin`.
 6. Mengatur kepemilikan `www-data` dan izin `storage/`, `bootstrap/cache/`, `connector/`.
 7. Memasang site Nginx dari `deploy/linux/nginx/` dan me-reload Nginx.
-8. Memasang unit systemd `smartpresensi-worker` dan `solutionx601-connector` dari
-   `deploy/linux/systemd/`, plus scheduler (cron `/etc/cron.d/smartpresensi-scheduler`
-   atau unit systemd sesuai `--scheduler`).
+8. Memasang unit systemd `smartpresensi-worker`, `smartpresensi-worker-long`, dan
+   `solutionx601-connector` dari `deploy/linux/systemd/`, plus scheduler (cron
+   `/etc/cron.d/smartpresensi-scheduler` atau unit systemd sesuai `--scheduler`).
 9. Menjalankan `php artisan optimize` dan `php artisan app:preflight`.
 
 Skrip aman dijalankan ulang: berkas `.env` dan `connector_config.ini` tidak ditimpa, baris
@@ -333,12 +333,12 @@ terbaca sampai cache dibersihkan. Setelah mengubah token:
 cd /var/www/smartpresensi
 sudo -u www-data php8.3 artisan optimize:clear
 sudo -u www-data php8.3 artisan optimize
-sudo systemctl restart smartpresensi-worker
+sudo systemctl restart smartpresensi-worker smartpresensi-worker-long
 ```
 
 Verifikasi lewat **Pengaturan -> Gateway WhatsApp** (token terisi dan status provider aktif),
 lalu kirim pesan uji dari halaman itu. Bila gagal, periksa `storage/logs/laravel.log` dan
-pastikan worker berjalan (`systemctl status smartpresensi-worker`).
+pastikan worker berjalan (`systemctl status smartpresensi-worker smartpresensi-worker-long`).
 
 ### 4.4 Nginx dan PHP-FPM
 
@@ -361,6 +361,8 @@ server {
     root /var/www/smartpresensi/public;
     index index.php;
 
+    server_tokens off;
+
     location / {
         try_files $uri $uri/ /index.php?$query_string;
     }
@@ -368,6 +370,7 @@ server {
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_hide_header X-Powered-By;
     }
 
     location ~ /\.(?!well-known).* {
@@ -375,6 +378,11 @@ server {
     }
 }
 ```
+
+Template juga menambahkan header keamanan `X-Frame-Options`, `X-Content-Type-Options`,
+`Referrer-Policy`, `X-Permitted-Cross-Domain-Policies`, dan `Permissions-Policy`.
+Bila memakai HTTPS di reverse proxy/Cloudflare, aktifkan `SESSION_SECURE_COOKIE=true`
+di `.env` setelah koneksi TLS terbukti berjalan.
 
 ### 4.5 Izin berkas
 
@@ -393,18 +401,29 @@ sudo chmod +x connector/run_connector.sh
 ### 5.1 Queue worker (systemd)
 
 Aplikasi memakai queue `database` dengan tiga nama queue: `default`, `validations`, dan
-`long-running`. Gunakan unit dari `deploy/linux/systemd/smartpresensi-worker.service`:
+`long-running`. Gunakan dua unit systemd agar job panjang tidak menahan notifikasi WhatsApp:
 
 ```bash
 sudo cp deploy/linux/systemd/smartpresensi-worker.service /etc/systemd/system/
+sudo cp deploy/linux/systemd/smartpresensi-worker-long.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now smartpresensi-worker
-sudo systemctl status smartpresensi-worker
+sudo systemctl enable --now smartpresensi-worker smartpresensi-worker-long
+sudo systemctl status smartpresensi-worker smartpresensi-worker-long
 journalctl -u smartpresensi-worker -f
+journalctl -u smartpresensi-worker-long -f
 ```
 
-> Sesuaikan `DB_QUEUE_RETRY_AFTER` agar lebih besar dari `--timeout`. Unit memakai timeout
-> `3660`, jadi `.env` memakai `3720`. Jangan memakai nilai default `1860`.
+- `smartpresensi-worker` melayani `default,validations` (notifikasi WhatsApp, validasi nomor wali).
+- `smartpresensi-worker-long` melayani `long-running` (sinkronisasi mesin, impor siswa, operasi massal).
+
+> Unit systemd bawaan sudah memakai sandboxing (`NoNewPrivileges`, `PrivateTmp`,
+> `ProtectSystem=full`, `ProtectHome`, `ProtectKernelTunables`, dan sejenisnya).
+> Bila menyalin unit lama, pasang ulang dari `deploy/linux/systemd/` lalu
+> `sudo systemctl daemon-reload`.
+
+> Sesuaikan `DB_QUEUE_RETRY_AFTER` agar lebih besar dari timeout job terpanjang. Worker
+> long-running memakai timeout `3660`, jadi `.env` memakai `3900`. Jangan memakai nilai
+> default `1860`.
 
 ### 5.2 Scheduler (wajib, pilih salah satu)
 
@@ -443,6 +462,19 @@ Cek jadwal:
 ```bash
 sudo -u www-data php8.3 artisan schedule:list
 ```
+
+### 5.3 Perilaku antrean dan notifikasi
+
+- Endpoint ingest connector hanya menyimpan raw log lalu membalas cepat; pemrosesan
+  absensi dan pembuatan notifikasi dijalankan oleh queue worker.
+- Notifikasi `queued` yang tertahan lebih dari 10 menit dijadwalkan ulang otomatis oleh
+  `whatsapp:sweep-queued` setiap 5 menit.
+- Webhook status WhatsApp bersifat monoton: `sent -> delivered -> read` tidak pernah
+  mundur, dan status `failed` tidak menimpa pesan yang sudah `delivered`/`read`.
+- Respons Fonnte dengan HTTP 200 tetapi `status` bukan `true` dianggap gagal dan akan
+  diretry, bukan dicatat sebagai "Terkirim".
+- Approval tinjauan waktu untuk scan **hari ini** mengirim notifikasi WhatsApp susulan;
+  scan tanggal lampau tidak dikirim susulan.
 
 ---
 
@@ -551,7 +583,7 @@ php artisan migrate:status
 php artisan schedule:list
 php artisan app:preflight
 
-sudo systemctl status nginx php8.3-fpm smartpresensi-worker solutionx601-connector
+sudo systemctl status nginx php8.3-fpm smartpresensi-worker smartpresensi-worker-long solutionx601-connector
 curl -I http://127.0.0.1/
 ```
 
@@ -612,10 +644,15 @@ npm run build
 sudo -u www-data php8.3 artisan migrate --force
 sudo -u www-data php8.3 artisan optimize
 
-sudo systemctl restart smartpresensi-worker
+sudo systemctl restart smartpresensi-worker smartpresensi-worker-long
 sudo systemctl restart solutionx601-connector
 sudo -u www-data php8.3 artisan up
 ```
+
+> Jika server sebelumnya hanya memiliki `smartpresensi-worker`, pasang unit baru
+> `smartpresensi-worker-long` dan perbarui helper restart (jalankan ulang `install.sh`
+> atau salin ulang blok helper dari skrip tersebut). Tanpa unit baru, job `long-running`
+> tidak diproses.
 
 > Jangan menimpa `.env` dan folder `storage/` saat update. Keduanya berisi konfigurasi dan
 > data runtime.
@@ -644,9 +681,9 @@ sudo -u www-data php8.3 artisan up
   `/etc/sudoers.d/smartpresensi-control`. Restart manual tetap bisa dilakukan:
 
   ```bash
-  sudo systemctl restart smartpresensi-worker
+  sudo systemctl restart smartpresensi-worker smartpresensi-worker-long
   sudo systemctl restart solutionx601-connector
-  sudo systemctl status smartpresensi-worker solutionx601-connector
+  sudo systemctl status smartpresensi-worker smartpresensi-worker-long solutionx601-connector
   ```
 
   Log panel dibaca dari `storage/logs/connector_service.log`,
@@ -689,7 +726,7 @@ sudo -u www-data php8.3 artisan up
 | Halaman 502 Bad Gateway | Cek `sudo systemctl status php8.3-fpm`; pastikan `fastcgi_pass` cocok dengan socket di `/run/php/`. |
 | Halaman 500 / permission denied | Cek `storage/logs/laravel.log`; pastikan `www-data` bisa menulis `storage/` dan `bootstrap/cache/`. |
 | Login gagal setelah migrasi | Buat admin dengan `sp:create-admin`. Jangan mengandalkan `db:seed`. |
-| Worker tidak memproses antrean | `sudo systemctl status smartpresensi-worker`; `journalctl -u smartpresensi-worker -n 100`; cek tabel `jobs`. |
+| Worker tidak memproses antrean | `sudo systemctl status smartpresensi-worker smartpresensi-worker-long`; `journalctl -u smartpresensi-worker -n 100`; `journalctl -u smartpresensi-worker-long -n 100`; cek tabel `jobs`. |
 | Status mesin tidak update | Pastikan cron/systemd scheduler berjalan; jalankan `php artisan schedule:list` dan `fingerprint:health-check` manual. |
 | Pusat Kontrol menampilkan "Tidak Tersedia" | `www-data` tidak dapat menjalankan `systemctl`, atau unit belum terpasang. Cek `sudo -u www-data systemctl is-active smartpresensi-worker` dan pastikan nama unit sesuai `.env`. |
 | Tombol restart Pusat Kontrol gagal | Pastikan `/usr/local/sbin/smartpresensi-service` ada dan `/etc/sudoers.d/smartpresensi-control` valid (`sudo visudo -c`). Panel menampilkan perintah `systemctl` manual sebagai cadangan. |
@@ -749,8 +786,9 @@ selesai dikirim. Versi terbaru menanganinya tanpa menghentikan service.
 ### 11.4 Diagnostik cepat
 
 ```bash
-sudo systemctl status nginx php8.3-fpm smartpresensi-worker solutionx601-connector
+sudo systemctl status nginx php8.3-fpm smartpresensi-worker smartpresensi-worker-long solutionx601-connector
 sudo journalctl -u smartpresensi-worker -n 100
+sudo journalctl -u smartpresensi-worker-long -n 100
 sudo journalctl -u solutionx601-connector -n 100
 sudo -u www-data php8.3 artisan schedule:list
 sudo -u www-data php8.3 artisan app:preflight

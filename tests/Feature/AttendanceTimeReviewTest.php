@@ -146,7 +146,7 @@ class AttendanceTimeReviewTest extends TestCase
         ]);
     }
 
-    public function test_same_day_delayed_scan_approval_does_not_queue_whatsapp(): void
+    public function test_same_day_delayed_scan_approval_queues_whatsapp_once(): void
     {
         Queue::fake();
 
@@ -178,8 +178,8 @@ class AttendanceTimeReviewTest extends TestCase
             'school_date' => '2026-10-28 00:00:00',
             'status' => 'hadir',
         ]);
-        $this->assertDatabaseCount('notification_logs', 0);
-        Queue::assertNotPushed(SendWhatsAppNotificationJob::class);
+        $this->assertDatabaseCount('notification_logs', 1);
+        Queue::assertPushed(SendWhatsAppNotificationJob::class, 1);
     }
 
     public function test_historical_approval_uses_schedule_for_scan_date(): void

@@ -10,21 +10,44 @@ class AuditLogController extends Controller
 {
     public function index(Request $request): View
     {
-        $action = $request->input('action');
-        $entityType = $request->input('entity_type');
+        $action = (string) $request->input('action', '');
+        $entityType = (string) $request->input('entity_type', '');
+        $dateFrom = (string) $request->input('date_from', '');
+        $dateTo = (string) $request->input('date_to', '');
 
         $query = AuditLog::with('actor')->latest('created_at');
 
-        if ($action) {
+        if ($action !== '') {
             $query->where('action', $action);
         }
 
-        if ($entityType) {
+        if ($entityType !== '') {
             $query->where('entity_type', $entityType);
         }
 
-        $logs = $query->get();
+        if ($dateFrom !== '') {
+            $query->whereDate('created_at', '>=', $dateFrom);
+        }
 
-        return view('audit.index', compact('logs', 'action', 'entityType'));
+        if ($dateTo !== '') {
+            $query->whereDate('created_at', '<=', $dateTo);
+        }
+
+        // Paginasi server: tabel audit dapat membesar tanpa batas, sehingga
+        // tidak boleh dimuat seluruhnya ke memori setiap kali halaman dibuka.
+        $logs = $query->paginate($this->resolvePerPage(50))->withQueryString();
+
+        $actions = AuditLog::query()->select('action')->distinct()->orderBy('action')->pluck('action');
+        $entityTypes = AuditLog::query()->select('entity_type')->distinct()->orderBy('entity_type')->pluck('entity_type');
+
+        return view('audit.index', compact(
+            'logs',
+            'action',
+            'entityType',
+            'dateFrom',
+            'dateTo',
+            'actions',
+            'entityTypes',
+        ));
     }
 }

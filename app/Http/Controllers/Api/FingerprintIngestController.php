@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessAttendanceLogsJob;
 use App\Models\FingerprintDevice;
-use App\Services\AttendanceLogProcessingService;
 use App\Services\FingerprintIngestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,8 +17,7 @@ class FingerprintIngestController extends Controller
      */
     public function ingest(
         Request $request,
-        FingerprintIngestService $ingestService,
-        AttendanceLogProcessingService $logProcessor
+        FingerprintIngestService $ingestService
     ): JsonResponse {
         // Ambil token dari Header (X-Device-Token atau Bearer)
         $token = $request->header('X-Device-Token') ?? $request->bearerToken();
@@ -42,7 +41,9 @@ class FingerprintIngestController extends Controller
         }
 
         $validated = $request->validate([
-            'logs' => ['required', 'array'],
+            // Connector mengirim sekitar 20 log per batch; batas ini mencegah
+            // satu request membanjiri memori/database bila token disalahgunakan.
+            'logs' => ['required', 'array', 'max:500'],
             'logs.*.machine_user_id' => ['required_without:logs.*.pin'],
             'logs.*.pin' => ['required_without:logs.*.machine_user_id'],
             'logs.*.occurred_at' => ['required_without:logs.*.time'],
@@ -59,14 +60,18 @@ class FingerprintIngestController extends Controller
             (bool) ($validated['live'] ?? true),
         );
 
-        // 2. Proses log yang baru tersimpan ke dalam attendances (PRD FR-09).
-        //    Service ini juga mengirim notifikasi WA hanya untuk scan hari ini.
-        $processingResult = $logProcessor->processDueForDevice($device, null, 200);
-        $processedCount = $processingResult['processed'];
+        // 2. Proses log di latar belakang (PRD FR-09). Connector hanya menunggu
+        //    8 detik, sehingga pemrosesan absensi dan notifikasi tidak boleh
+        //    dijalankan di dalam request ini.
+        $processingQueued = $ingestResult['inserted'] > 0;
+
+        if ($processingQueued) {
+            ProcessAttendanceLogsJob::dispatch($device->id);
+        }
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Data log berhasil diterima dan diproses.',
+            'message' => 'Data log berhasil diterima dan dijadwalkan untuk diproses.',
             'device' => [
                 'id' => $device->id,
                 'name' => $device->name,
@@ -79,7 +84,7 @@ class FingerprintIngestController extends Controller
                 'new_inserted' => $ingestResult['inserted'],
                 'duplicates_skipped' => $ingestResult['duplicates_skipped'],
                 'unmapped_logs' => $ingestResult['unmapped'],
-                'attendances_processed' => $processedCount,
+                'processing_queued' => $processingQueued,
             ],
         ], 200);
     }

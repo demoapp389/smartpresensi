@@ -21,4 +21,15 @@ class PreflightCommandTest extends TestCase
 
         $this->artisan('app:preflight')->assertExitCode(0);
     }
+
+    public function test_it_warns_about_disabled_session_encryption(): void
+    {
+        config()->set('app.env', 'production');
+        config()->set('app.debug', false);
+        config()->set('session.encrypt', false);
+
+        $this->artisan('app:preflight')
+            ->expectsOutputToContain('SESSION_ENCRYPT=false')
+            ->assertExitCode(0);
+    }
 }

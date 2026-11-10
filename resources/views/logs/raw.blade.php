@@ -81,9 +81,7 @@
         </form>
     @endif
 
-    {{-- Filter dipindah ke toolbar DataTables oleh tables.js: dropdown jumlah
-         baris + filter di kiri, kotak pencarian bawaan DataTables di kanan.
-         Tetap form GET biasa bila JS mati. --}}
+    {{-- Filter dan paginasi dijalankan di server; hanya satu halaman dimuat. --}}
     <form id="raw-filter" method="GET" action="{{ route('logs.raw') }}" class="flex flex-wrap items-center gap-2 text-xs">
         <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5">
             <label for="date" class="text-[var(--text-secondary)] font-medium whitespace-nowrap">Tanggal Scan:</label>
@@ -128,7 +126,7 @@
         </div>
 
         <div>
-            <table class="min-w-[700px] w-full text-left text-xs font-mono" data-datatable data-page-length="25" data-length-change="true" data-toolbar-filter="#raw-filter" data-empty-message="Tidak ada raw log yang tersimpan sesuai filter">
+            <table class="min-w-[700px] w-full text-left text-xs font-mono">
                 <thead class="bg-[var(--surface-secondary)] text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider border-b border-[var(--border-subtle)] font-sans">
                     <tr>
                         @if($canBulkReview)
@@ -255,6 +253,18 @@
                     @endforeach
                 </tbody>
             </table>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-3 text-xs">
+            <div class="flex items-center gap-3">
+                <span class="text-[12px] text-[var(--text-muted)]">
+                    Menampilkan {{ $logs->firstItem() ?? 0 }}–{{ $logs->lastItem() ?? 0 }} dari {{ $logs->total() }} log
+                </span>
+                @include('partials.per-page', ['paginator' => $logs])
+            </div>
+            <div>
+                {{ $logs->links() }}
+            </div>
         </div>
     </section>
 </div>

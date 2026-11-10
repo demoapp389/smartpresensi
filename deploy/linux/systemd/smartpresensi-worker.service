@@ -9,10 +9,21 @@ Type=simple
 User=www-data
 Group=www-data
 WorkingDirectory=/var/www/smartpresensi
-ExecStart=/usr/bin/php8.3 artisan queue:work --queue=default,validations,long-running --tries=3 --timeout=3660 --sleep=3
+ExecStart=/usr/bin/php8.3 artisan queue:work --queue=default,validations --tries=3 --timeout=1860 --sleep=3
 Restart=always
 RestartSec=5
 TimeoutStopSec=90
+# Hardening systemd: batasi dampak bila proses worker dikompromikan.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
 StandardOutput=append:/var/www/smartpresensi/storage/logs/queue_worker_service.log
 StandardError=append:/var/www/smartpresensi/storage/logs/queue_worker_service.log
 

@@ -18,6 +18,17 @@ ExecStart=/usr/bin/python3 /var/www/smartpresensi/connector/zkconnector.py
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=15
+# Hardening systemd: batasi dampak bila proses connector dikompromikan.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
 StandardOutput=append:/var/www/smartpresensi/storage/logs/connector_service.log
 StandardError=append:/var/www/smartpresensi/storage/logs/connector_service.log
 # Pengaman agar OOM hanya membunuh connector, bukan seluruh server.

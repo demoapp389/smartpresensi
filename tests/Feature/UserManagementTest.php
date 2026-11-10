@@ -170,4 +170,71 @@ class UserManagementTest extends TestCase
         $this->actingAs($wali)->get(route('users.index'))->assertStatus(403);
         $this->actingAs($wali)->post(route('users.store'), [])->assertStatus(403);
     }
+
+    public function test_last_active_admin_cannot_demote_themselves(): void
+    {
+        $response = $this->actingAs($this->admin)->put(route('users.update', $this->admin), [
+            'name' => $this->admin->name,
+            'email' => $this->admin->email,
+            'role' => 'operator',
+            'is_active' => true,
+        ]);
+
+        $response->assertRedirect(route('users.index'));
+        $response->assertSessionHas('error');
+        $this->assertDatabaseHas('users', [
+            'id' => $this->admin->id,
+            'role' => 'admin',
+            'is_active' => true,
+        ]);
+    }
+
+    public function test_last_active_admin_cannot_deactivate_themselves(): void
+    {
+        $response = $this->actingAs($this->admin)->put(route('users.update', $this->admin), [
+            'name' => $this->admin->name,
+            'email' => $this->admin->email,
+            'role' => 'admin',
+            'is_active' => false,
+        ]);
+
+        $response->assertRedirect(route('users.index'));
+        $response->assertSessionHas('error');
+        $this->assertDatabaseHas('users', [
+            'id' => $this->admin->id,
+            'is_active' => true,
+        ]);
+    }
+
+    public function test_admin_can_be_demoted_when_another_active_admin_exists(): void
+    {
+        User::factory()->admin()->create();
+
+        $response = $this->actingAs($this->admin)->put(route('users.update', $this->admin), [
+            'name' => $this->admin->name,
+            'email' => $this->admin->email,
+            'role' => 'operator',
+            'is_active' => true,
+        ]);
+
+        $response->assertRedirect(route('users.index'));
+        $response->assertSessionHas('success');
+        $this->assertDatabaseHas('users', [
+            'id' => $this->admin->id,
+            'role' => 'operator',
+        ]);
+    }
+
+    public function test_deactivated_user_is_logged_out_on_the_next_request(): void
+    {
+        $this->actingAs($this->operator);
+
+        $this->operator->update(['is_active' => false]);
+
+        $response = $this->get(route('dashboard'));
+
+        $response->assertRedirect(route('login'));
+        $response->assertSessionHas('error');
+        $this->assertGuest();
+    }
 }

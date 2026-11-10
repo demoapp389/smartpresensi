@@ -89,7 +89,7 @@
         <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-4 py-3">
             <div>
                 <h2 class="text-xs font-bold text-[var(--text)]">Daftar Log Notifikasi WhatsApp</h2>
-                <div class="text-[11px] text-[var(--text-muted)]">Total: {{ $notifications->count() }} pesan tercatat</div>
+                <div class="text-[11px] text-[var(--text-muted)]">Total: {{ $notifications->total() }} pesan tercatat</div>
             </div>
 
             @if($stats['failed'] > 0)
@@ -148,9 +148,7 @@
             </div>
         </div>
 
-        {{-- Filter dipindah ke toolbar DataTables oleh tables.js: dropdown jumlah
-             baris + filter di kiri, kotak pencarian bawaan DataTables di kanan
-             (lengkap dengan ikon). Tetap berupa form GET biasa bila JS mati. --}}
+        {{-- Filter dan paginasi dijalankan di server; hanya satu halaman dimuat. --}}
         <form id="wa-filter" method="GET" action="{{ route('notifications.index') }}" class="flex flex-wrap items-center gap-2">
             <select name="status" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
                 <option value="">Semua Status</option>
@@ -178,7 +176,7 @@
         </form>
 
         <div>
-            <table class="w-full text-left" data-datatable data-page-length="10" data-length-change="true" data-toolbar-filter="#wa-filter" data-empty-message="Belum ada riwayat notifikasi WhatsApp.">
+            <table class="w-full text-left">
                 <thead class="bg-[var(--surface-secondary)] text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider border-b border-[var(--border-subtle)]">
                     <tr>
                         <th scope="col" class="w-10 px-4 py-2.5 text-center" data-orderable="false">
@@ -248,6 +246,18 @@
                     @endforeach
                 </tbody>
             </table>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-3 text-xs">
+            <div class="flex items-center gap-3">
+                <span class="text-[12px] text-[var(--text-muted)]">
+                    Menampilkan {{ $notifications->firstItem() ?? 0 }}–{{ $notifications->lastItem() ?? 0 }} dari {{ $notifications->total() }} pesan
+                </span>
+                @include('partials.per-page', ['paginator' => $notifications])
+            </div>
+            <div>
+                {{ $notifications->links() }}
+            </div>
         </div>
     </section>
 </div>

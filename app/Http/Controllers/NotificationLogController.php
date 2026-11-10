@@ -58,10 +58,9 @@ class NotificationLogController extends Controller
             });
         }
 
-        // Data dikirim penuh (tanpa paginate): tabel memakai DataTables di
-        // browser. Filter status/event/pencarian tetap dijalankan di server,
-        // sedangkan paginasi & pengurutan ditangani DataTables di sisi klien.
-        $notifications = $query->get();
+        // Paginasi server: outbox dapat berisi ribuan pesan, sehingga hanya
+        // satu halaman yang dimuat dan filter tetap dijalankan di database.
+        $notifications = $query->paginate($this->resolvePerPage(25))->withQueryString();
 
         // Statistik ringkas dihitung dalam satu query agregat per status (PERF-06/DUP-03).
         $statusCounts = NotificationLog::statusCounts();
@@ -118,14 +117,15 @@ class NotificationLogController extends Controller
      */
     public function retryAllFailed(Request $request): RedirectResponse
     {
-        $failedLogs = NotificationLog::where('status', 'failed')->get();
+        // Hanya kolom id yang dimuat agar ribuan pesan gagal tidak dihidrasi
+        // menjadi model Eloquent sekaligus.
+        $ids = NotificationLog::where('status', 'failed')->pluck('id')->all();
 
-        if ($failedLogs->isEmpty()) {
+        if ($ids === []) {
             return back()->with('info', 'Tidak ada pesan gagal yang perlu dikirim ulang.');
         }
 
-        $count = $failedLogs->count();
-        $ids = $failedLogs->pluck('id')->all();
+        $count = count($ids);
 
         DB::transaction(function () use ($ids, $count) {
             NotificationLog::whereIn('id', $ids)->update([
@@ -134,7 +134,11 @@ class NotificationLogController extends Controller
                 'queued_at' => now(),
             ]);
 
-            $this->logAudit('retry_all_failed_whatsapp_notifications', 'NotificationLog', null, ['retried_count' => $count], ['status' => 'queued', 'retried_ids' => $ids]);
+            $this->logAudit('retry_all_failed_whatsapp_notifications', 'NotificationLog', null, ['retried_count' => $count], [
+                'status' => 'queued',
+                'retried_ids' => array_slice($ids, 0, 100),
+                'retried_ids_truncated' => $count > 100,
+            ]);
         });
 
         foreach ($ids as $id) {
@@ -154,15 +158,15 @@ class NotificationLogController extends Controller
             'ids.*' => ['integer', 'exists:notification_logs,id'],
         ]);
 
-        $logs = NotificationLog::whereIn('id', $validated['ids'])
+        $ids = NotificationLog::whereIn('id', $validated['ids'])
             ->whereIn('status', ['failed', 'queued'])
-            ->get();
+            ->pluck('id')
+            ->all();
 
-        if ($logs->isEmpty()) {
+        if ($ids === []) {
             return back()->with('error', 'Pesan terpilih sudah terkirim, diterima, atau dibaca sehingga tidak dapat dikirim ulang.');
         }
 
-        $ids = $logs->pluck('id')->all();
         $count = count($ids);
 
         DB::transaction(function () use ($ids, $count) {
@@ -192,9 +196,7 @@ class NotificationLogController extends Controller
             'ids.*' => ['integer', 'exists:notification_logs,id'],
         ]);
 
-        $logs = NotificationLog::whereIn('id', $validated['ids'])->get();
-
-        $ids = $logs->pluck('id')->all();
+        $ids = NotificationLog::whereIn('id', $validated['ids'])->pluck('id')->all();
         $count = count($ids);
 
         DB::transaction(function () use ($ids, $count) {

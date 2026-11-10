@@ -1,6 +1,6 @@
 # Audit SmartPresensi
 
-**Status terakhir:** 21 Oktober 2026
+**Status terakhir:** 10 November 2026
 **Dokumen ini adalah satu-satunya sumber status audit di repositori.**
 Dokumen audit lama sudah diringkas ke sini lalu dihapus agar tidak menjadi sumber informasi yang bertentangan.
 
@@ -29,6 +29,56 @@ Dokumen audit lama sudah diringkas ke sini lalu dihapus agar tidak menjadi sumbe
 | File tak terpakai | Selesai 21 Oktober 2026 | `gentelella-master/`, `database/database.sqlite`, `storage/t.txt`, dan `public/favicon.ico` dihapus. |
 | Dokumen audit | Selesai 21 Oktober 2026 | Dokumen audit lama dikonsolidasikan ke dokumen ini. |
 | Kualitas kode | Tidak ada temuan kode terbuka | Sisa keterbatasan bersifat operasional dan verifikasi perangkat. |
+
+## Perbaikan Fase 1 (10 November 2026)
+
+- Respons Fonnte HTTP 200 dengan `status` bukan `true` kini dianggap gagal, menyimpan
+  `reason`, dan hanya memakai `id[0]` sebagai `provider_message_id`.
+- Job notifikasi WhatsApp yang gagal memperoleh lock dikembalikan ke antrean
+  (`release(10)`) dan diberi timeout 60 detik; command `whatsapp:sweep-queued`
+  berjalan tiap 5 menit untuk menyelamatkan notifikasi `queued` yang tertahan.
+- Worker Linux dipisah: `smartpresensi-worker` (`default,validations`) dan
+  `smartpresensi-worker-long` (`long-running`).
+- `DB_QUEUE_RETRY_AFTER` dinaikkan menjadi 3900 detik agar melebihi timeout job 3600 detik.
+- Endpoint ingest connector menyimpan log lalu membalas cepat; pemrosesan absensi
+  dijalankan oleh `ProcessAttendanceLogsJob`.
+- Approval tinjauan waktu untuk scan hari ini mengirim notifikasi WhatsApp susulan
+  (scan tanggal lampau tetap tidak dikirim).
+- Webhook status WhatsApp memakai urutan `queued < sent < delivered < read`, menolak
+  status mundur/tidak dikenal, dan `provider_message_id` kini memiliki index.
+- `SCHOOL_NAME` dibersihkan dari spasi/koma di ujung.
+- Footer tidak lagi menampilkan nama database internal.
+
+## Perbaikan Fase 2 (10 November 2026)
+
+- Daftar audit, raw log, log unmapped, riwayat presensi, dan outbox WhatsApp memakai
+  pagination server-side; ekspor presensi mengalirkan baris per chunk.
+- Tren dashboard diagregasi di SQL, jadwal sekolah di-cache singkat, dan query sidebar
+  dipindah ke view composer agar tidak diulang tiap halaman.
+- Indeks `attendances.check_out_status` dan `audit_logs.created_at` ditambahkan.
+- Aset font eksternal Google Fonts dihapus agar render tidak menunggu jaringan.
+
+## Perbaikan Fase 3 (10 November 2026)
+
+- Webhook WhatsApp (verifikasi GET dan status POST) dibatasi 120 request/menit per IP.
+- Ingest connector menolak payload lebih dari 500 log per request.
+- Middleware `EnsureUserIsActive` memutus sesi akun yang dinonaktifkan.
+- Administrator aktif terakhir tidak bisa diturunkan, dinonaktifkan, atau dihapus.
+- Pesan gagal impor Excel tidak lagi memuat detail exception/path server.
+- Unduhan `connector_config.ini` memakai `Cache-Control: no-store`.
+- Template Nginx dan unit systemd diperkuat (header keamanan, sandboxing).
+- `app:preflight` memberi peringatan hardening tanpa menggagalkan deploy.
+
+## Perbaikan Fase 4 (10 November 2026)
+
+- Berkas view mati (`welcome.blade.php`, `vendor/pagination/default.blade.php`) dihapus.
+- Method `@deprecated` `FingerprintConnectorService::syncStudents()` dihapus karena tidak
+  dipakai lagi; seluruh sinkronisasi memakai `syncMachineUsers()`.
+- Query database yang masih berada di view dipindah ke controller
+  (`students.index` dan `reports.print`).
+- Aturan validasi formulir pengguna disatukan agar store/update tidak menyimpang.
+- `.gitignore` dibersihkan dari entri usang; `deploy/templates/env.template` diselaraskan
+  dengan `.env.example` (enkripsi sesi, retry antrean, dan kunci presensi).
 
 ## Tindakan yang Sudah Diverifikasi
 

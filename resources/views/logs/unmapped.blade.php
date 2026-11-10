@@ -29,9 +29,7 @@
         </div>
     </div>
 
-    {{-- Filter dipindah ke toolbar DataTables oleh tables.js: dropdown jumlah
-         baris + filter di kiri, kotak pencarian bawaan DataTables di kanan.
-         Tetap form GET biasa bila JS mati. --}}
+    {{-- Filter dan paginasi dijalankan di server; hanya satu halaman dimuat. --}}
     <form id="unmapped-filter" method="GET" action="{{ route('logs.unmapped') }}" class="flex flex-wrap items-center gap-2 text-xs">
         <select name="device_id" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
             <option value="">Semua Perangkat</option>
@@ -53,7 +51,7 @@
         </div>
 
         <div>
-            <table class="min-w-[650px] w-full text-left text-xs font-mono" data-datatable data-page-length="25" data-length-change="true" data-toolbar-filter="#unmapped-filter" data-empty-message="Semua scan mesin telah terpetakan">
+            <table class="min-w-[650px] w-full text-left text-xs font-mono">
                 <thead class="bg-[var(--surface-secondary)] text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider border-b border-[var(--border-subtle)] font-sans">
                     <tr>
                         <th scope="col" class="px-4 py-2.5">Waktu Scan Mesin</th>
@@ -89,6 +87,18 @@
                     @endforeach
                 </tbody>
             </table>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-3 text-xs">
+            <div class="flex items-center gap-3">
+                <span class="text-[12px] text-[var(--text-muted)]">
+                    Menampilkan {{ $unmappedLogs->firstItem() ?? 0 }}–{{ $unmappedLogs->lastItem() ?? 0 }} dari {{ $unmappedLogs->total() }} scan
+                </span>
+                @include('partials.per-page', ['paginator' => $unmappedLogs])
+            </div>
+            <div>
+                {{ $unmappedLogs->links() }}
+            </div>
         </div>
     </section>
 

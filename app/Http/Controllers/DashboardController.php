@@ -180,9 +180,13 @@ class DashboardController extends Controller
             });
         }
 
+        // Agregasi dilakukan di database: satu baris per kombinasi
+        // tanggal/status/status pulang, bukan seluruh model Attendance.
         $trendGrouped = $trendQuery
-            ->get(['school_date', 'status', 'check_out_status'])
-            ->groupBy(fn (Attendance $attendance): string => $attendance->school_date->toDateString());
+            ->selectRaw('school_date, status, check_out_status, COUNT(*) as aggregate')
+            ->groupBy('school_date', 'status', 'check_out_status')
+            ->get()
+            ->groupBy(fn ($row): string => Carbon::parse($row->school_date)->toDateString());
         $alpaDateKeys = $this->alpaService->getAlpaDateKeys($startDate, $endDate);
 
         $trendLabels = [];
@@ -198,19 +202,21 @@ class DashboardController extends Controller
             $trendLabels[] = $cursor->translatedFormat('D, d M');
             $isBeforeStartDay = $this->periodService->isBeforeStart($cursor);
 
-            $dayRecords = $isBeforeStartDay ? collect() : $trendGrouped->get($dStr, collect());
-            $hCount = $dayRecords->where('status', 'hadir')->count();
-            $tCount = $dayRecords->where('status', 'terlambat')->count();
-            $pcCount = $dayRecords->filter(
-                fn (Attendance $attendance): bool => $attendance->status === 'pulang_cepat'
-                    || $attendance->check_out_status === 'pulang_cepat'
-            )->count();
-            $isCount = $dayRecords->whereIn('status', ['izin', 'sakit'])->count();
-            $recordedCount = $dayRecords->count();
+            $dayRows = $isBeforeStartDay ? collect() : $trendGrouped->get($dStr, collect());
+            $hCount = (int) $dayRows->filter(fn ($row): bool => $row->status === 'hadir')->sum('aggregate');
+            $tCount = (int) $dayRows->filter(fn ($row): bool => $row->status === 'terlambat')->sum('aggregate');
+            $pcCount = (int) $dayRows->filter(
+                fn ($row): bool => $row->status === 'pulang_cepat'
+                    || $row->check_out_status === 'pulang_cepat'
+            )->sum('aggregate');
+            $isCount = (int) $dayRows->filter(
+                fn ($row): bool => in_array($row->status, ['izin', 'sakit'], true)
+            )->sum('aggregate');
+            $recordedCount = (int) $dayRows->sum('aggregate');
             $trendVirtualAlpa = ! $isBeforeStartDay && isset($alpaDateKeys[$dStr])
                 ? max(0, $totalStudents - $recordedCount)
                 : 0;
-            $trendAlpaCount = $dayRecords->where('status', 'alpa')->count() + $trendVirtualAlpa;
+            $trendAlpaCount = (int) $dayRows->filter(fn ($row): bool => $row->status === 'alpa')->sum('aggregate') + $trendVirtualAlpa;
 
             $trendHadir[] = $hCount;
             $trendTerlambat[] = $tCount;

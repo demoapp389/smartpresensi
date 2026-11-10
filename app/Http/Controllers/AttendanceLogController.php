@@ -67,9 +67,9 @@ class AttendanceLogController extends Controller
 
         $query = $this->applyFilters($query, $request);
 
-        // Data dikirim penuh (tanpa paginate): tabel memakai DataTables di sisi
-        // klien, sehingga filter tanggal/perangkat/status tetap ditangani server.
-        $logs = $query->get();
+        // Paginasi server: filter tanggal/perangkat/status ditangani server dan
+        // hasil dibatasi per halaman agar antrean log historis tidak dimuat penuh.
+        $logs = $query->paginate($this->resolvePerPage(50))->withQueryString();
         $devices = FingerprintDevice::all();
 
         $dateInput = in_array($date, ['', 'all'], true) ? '' : $date;
@@ -247,8 +247,8 @@ class AttendanceLogController extends Controller
 
         $query = $this->applyFilters($query, $request);
 
-        // Data dikirim penuh (tanpa paginate): tabel memakai DataTables di sisi klien.
-        $unmappedLogs = $query->get();
+        // Paginasi server agar daftar PIN yang belum dipetakan tidak tumbuh tanpa batas.
+        $unmappedLogs = $query->paginate($this->resolvePerPage(50))->withQueryString();
 
         $students = Student::with('schoolClass')
             ->where('active', true)

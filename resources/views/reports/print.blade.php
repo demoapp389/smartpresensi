@@ -363,13 +363,9 @@
 
         $dailyScheduleIn = '-';
         $dailyScheduleOut = '-';
-        if ($type === 'daily') {
-            $parsedDay = \Carbon\Carbon::parse($reportData['date'], 'Asia/Jakarta');
-            $sched = \App\Models\SchoolSchedule::where('day_of_week', $parsedDay->dayOfWeekIso)->where('is_active', true)->first();
-            if ($sched) {
-                $dailyScheduleIn = substr($sched->start_at, 0, 5);
-                $dailyScheduleOut = substr($sched->end_at, 0, 5);
-            }
+        if ($type === 'daily' && $dailySchedule) {
+            $dailyScheduleIn = substr($dailySchedule->start_at, 0, 5);
+            $dailyScheduleOut = substr($dailySchedule->end_at, 0, 5);
         }
         $hasSpecificClass = $classObj !== null;
     @endphp

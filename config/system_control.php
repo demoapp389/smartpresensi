@@ -23,6 +23,9 @@ return [
 
     'units' => [
         'worker' => env('SYSTEM_CONTROL_WORKER_UNIT', 'smartpresensi-worker'),
+        // Worker terpisah untuk job panjang (sync/import/bulk) agar antrean
+        // notifikasi WhatsApp tidak tertahan di belakangnya.
+        'worker_long' => env('SYSTEM_CONTROL_WORKER_LONG_UNIT', 'smartpresensi-worker-long'),
         'connector' => env('SYSTEM_CONTROL_CONNECTOR_UNIT', 'solutionx601-connector'),
         'scheduler' => env('SYSTEM_CONTROL_SCHEDULER_UNIT', 'smartpresensi-scheduler'),
     ],
@@ -45,6 +48,7 @@ return [
     'logs' => [
         'connector' => env('SYSTEM_CONTROL_CONNECTOR_LOG', storage_path('logs/connector_service.log')),
         'worker' => env('SYSTEM_CONTROL_WORKER_LOG', storage_path('logs/queue_worker_service.log')),
+        'worker_long' => env('SYSTEM_CONTROL_WORKER_LONG_LOG', storage_path('logs/queue_worker_long_service.log')),
         'scheduler' => env('SYSTEM_CONTROL_SCHEDULER_LOG', storage_path('logs/scheduler.log')),
         'system' => env('SYSTEM_CONTROL_SYSTEM_LOG', storage_path('logs/laravel.log')),
     ],

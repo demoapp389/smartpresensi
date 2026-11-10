@@ -130,6 +130,11 @@ cd C:\SmartPresensi\app
 > worker dan scheduler yang dibutuhkan untuk notifikasi WhatsApp, status mesin, dan
 > rekonsiliasi absensi.
 
+> Sejak perbaikan Fase 1, endpoint ingest connector membalas lebih cepat karena pemrosesan
+> absensi dijalankan oleh queue worker. Notifikasi `queued` yang tertahan dijadwalkan ulang
+> otomatis, status webhook tidak pernah mundur, dan respons Fonnte dengan HTTP 200 tetapi
+> `status` bukan `true` dicatat sebagai gagal (bukan "Terkirim").
+
 ---
 
 ## 7. Melihat status layanan

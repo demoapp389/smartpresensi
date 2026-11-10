@@ -253,8 +253,23 @@ class AttendanceLogProcessingService
             return $attendance;
         });
 
-        // Approval time-review selalu bersifat historis/terlambat, termasuk
-        // scan hari yang sama yang baru ditinjau. Jangan kirim WhatsApp susulan.
+        // Scan hari ini yang sempat ditahan karena keterlambatan unggah tetap
+        // layak diberitahukan ke wali. Scan tanggal lampau tidak dikirim susulan
+        // agar tidak membingungkan (queueNotificationIfNeeded memeriksa tanggal).
+        if ($attendance !== null) {
+            $log->refresh();
+
+            try {
+                $this->queueNotificationIfNeeded($log, $attendance);
+            } catch (Throwable $exception) {
+                Log::warning('Gagal membuat notifikasi WhatsApp setelah approval time-review.', [
+                    'attendance_log_id' => $log->id,
+                    'attendance_id' => $attendance->id,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
+
         return $attendance;
     }
 

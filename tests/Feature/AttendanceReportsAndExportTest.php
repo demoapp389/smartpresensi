@@ -9,7 +9,7 @@ use App\Models\Student;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Tests\TestCase;
 
 class AttendanceReportsAndExportTest extends TestCase
@@ -47,18 +47,17 @@ class AttendanceReportsAndExportTest extends TestCase
         $response->assertDontSee('>Status Pulang</th>', false);
     }
 
-    public function test_attendances_index_renders_client_side_datatables_without_server_pagination(): void
+    public function test_attendances_index_uses_server_side_pagination(): void
     {
         $response = $this->actingAs($this->admin)->get(route('attendances.index'));
 
         $response->assertOk();
 
-        // Data dikirim penuh ke DataTables sisi klien, bukan paginasi server.
-        $response->assertViewHas('attendances', fn ($attendances) => $attendances instanceof Collection);
+        $response->assertViewHas('attendances', fn ($attendances) => $attendances instanceof LengthAwarePaginator);
 
         $html = $response->getContent();
-        $this->assertStringContainsString('data-datatable', $html);
-        $this->assertStringNotContainsString('Halaman 1 dari', $html);
+        $this->assertStringNotContainsString('data-datatable', $html);
+        $this->assertStringContainsString('Menampilkan', $html);
     }
 
     public function test_admin_can_export_attendances_as_xlsx(): void

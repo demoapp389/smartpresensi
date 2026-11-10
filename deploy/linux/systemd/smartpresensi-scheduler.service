@@ -12,6 +12,17 @@ WorkingDirectory=/var/www/smartpresensi
 ExecStart=/usr/bin/php8.3 artisan schedule:work
 Restart=always
 RestartSec=5
+# Hardening systemd: batasi dampak bila proses scheduler dikompromikan.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
 StandardOutput=append:/var/www/smartpresensi/storage/logs/scheduler.log
 StandardError=append:/var/www/smartpresensi/storage/logs/scheduler.log
 

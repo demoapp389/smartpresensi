@@ -69,6 +69,28 @@ class PreflightCommand extends Command
             $failures[] = 'Storage tidak dapat ditulis: '.$e->getMessage();
         }
 
+        // 5. Peringatan hardening (tidak menggagalkan deploy, tetapi perlu ditinjau).
+        if (! config('session.encrypt')) {
+            $this->warn('   [WARN] SESSION_ENCRYPT=false. Aktifkan enkripsi sesi di produksi.');
+        }
+
+        if (str_starts_with((string) config('app.url'), 'https://') && ! config('session.secure')) {
+            $this->warn('   [WARN] APP_URL memakai HTTPS tetapi SESSION_SECURE_COOKIE belum aktif.');
+        }
+
+        if (config('mail.default') === 'log') {
+            $this->warn('   [WARN] MAIL_MAILER=log: tautan reset kata sandi akan tersimpan di berkas log.');
+        }
+
+        if (in_array(config('whatsapp.default'), ['fonnte', 'meta'], true)) {
+            $webhookReady = config('whatsapp.webhook_secret') !== ''
+                || config('whatsapp.meta.app_secret') !== '';
+
+            if (! $webhookReady) {
+                $this->warn('   [WARN] WA_WEBHOOK_SECRET/WA_META_APP_SECRET kosong: webhook WhatsApp akan menolak semua event.');
+            }
+        }
+
         if ($failures !== []) {
             $this->newLine();
             $this->error('Preflight GAGAL:');

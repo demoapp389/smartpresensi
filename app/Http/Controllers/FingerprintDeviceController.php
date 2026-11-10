@@ -360,7 +360,12 @@ class FingerprintDeviceController extends Controller
 
         return response()->streamDownload(function () use ($content) {
             echo $content;
-        }, 'connector_config.ini', ['Content-Type' => 'text/plain; charset=UTF-8']);
+        }, 'connector_config.ini', [
+            'Content-Type' => 'text/plain; charset=UTF-8',
+            // Berkas berisi token rahasia: jangan disimpan cache browser/proxy.
+            'Cache-Control' => 'no-store, private, max-age=0',
+            'Pragma' => 'no-cache',
+        ]);
     }
 
     /**

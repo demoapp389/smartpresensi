@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * Controller untuk menangani Webhook WhatsApp (Meta Cloud API & Gateway) (PRD FR-14).
@@ -59,12 +60,12 @@ class WhatsAppWebhookController extends Controller
 
                         if ($providerMessageId && $statusName) {
                             $notification = NotificationLog::where('provider_message_id', $providerMessageId)->first();
-                            if ($notification) {
-                                $notification->update([
-                                    'status' => $statusName,
-                                    'error_message' => $st['errors'][0]['message'] ?? $notification->error_message,
-                                ]);
-                                Log::info("[WhatsApp Webhook] Status pesan {$notification->id} diperbarui menjadi '{$statusName}'");
+                            if ($notification && $this->applyStatus(
+                                $notification,
+                                (string) $statusName,
+                                $st['errors'][0]['message'] ?? null,
+                            )) {
+                                Log::info("[WhatsApp Webhook] Status pesan {$notification->id} diperbarui menjadi '{$notification->status}'");
                             }
                         }
                     }
@@ -74,23 +75,91 @@ class WhatsAppWebhookController extends Controller
 
         // 2. Fonnte / Generic Webhook Payload
         if (isset($payload['id']) && isset($payload['status'])) {
-            $providerMessageId = (string) $payload['id'];
-            $statusName = strtolower($payload['status']);
+            $rawId = $payload['id'];
+            $providerMessageId = is_array($rawId) ? (string) ($rawId[0] ?? '') : (string) $rawId;
 
             $notification = NotificationLog::where('provider_message_id', $providerMessageId)->first();
-            if ($notification) {
-                $mappedStatus = match ($statusName) {
-                    'sent' => 'sent',
-                    'delivered' => 'delivered',
-                    'read' => 'read',
-                    'failed', 'reject' => 'failed',
-                    default => $statusName,
-                };
-                $notification->update(['status' => $mappedStatus]);
+            if ($notification && $this->applyStatus(
+                $notification,
+                (string) $payload['status'],
+                $payload['reason'] ?? $payload['detail'] ?? null,
+            )) {
+                Log::info("[WhatsApp Webhook] Status pesan {$notification->id} diperbarui menjadi '{$notification->status}'");
             }
         }
 
         return response()->json(['status' => 'success'], 200);
+    }
+
+    /**
+     * Terapkan status webhook tanpa pernah memundurkan status yang sudah lebih tinggi.
+     */
+    private function applyStatus(NotificationLog $notification, string $statusName, ?string $errorMessage = null): bool
+    {
+        $mappedStatus = match (strtolower(trim($statusName))) {
+            'queued', 'pending', 'processing' => 'queued',
+            'sent', 'success' => 'sent',
+            'delivered' => 'delivered',
+            'read' => 'read',
+            'failed', 'reject', 'rejected', 'error' => 'failed',
+            default => null,
+        };
+
+        if ($mappedStatus === null) {
+            Log::warning('[WhatsApp Webhook] Status tidak dikenal diabaikan.', [
+                'notification_id' => $notification->id,
+                'status' => $statusName,
+            ]);
+
+            return false;
+        }
+
+        $currentStatus = strtolower(trim((string) $notification->status));
+
+        if ($currentStatus === 'cancelled') {
+            return false;
+        }
+
+        $currentRank = $this->statusRank($currentStatus);
+        $newRank = $this->statusRank($mappedStatus);
+
+        // Kegagalan hanya boleh menimpa status sebelum pesan terkirim/diterima.
+        if ($mappedStatus === 'failed') {
+            if ($currentRank >= $this->statusRank('delivered')) {
+                return false;
+            }
+        } elseif ($newRank <= $currentRank && $currentRank >= 0) {
+            return false;
+        }
+
+        $attributes = ['status' => $mappedStatus];
+
+        if ($mappedStatus === 'sent' && $notification->sent_at === null) {
+            $attributes['sent_at'] = now();
+        }
+
+        if (is_string($errorMessage) && trim($errorMessage) !== '') {
+            $attributes['error_message'] = Str::limit(trim($errorMessage), 500);
+        } elseif (in_array($mappedStatus, ['sent', 'delivered', 'read'], true)) {
+            $attributes['error_message'] = null;
+        }
+
+        $notification->update($attributes);
+
+        return true;
+    }
+
+    private function statusRank(string $status): int
+    {
+        return match (strtolower(trim($status))) {
+            'queued', 'held' => 0,
+            'sent' => 1,
+            'delivered' => 2,
+            'read' => 3,
+            'failed' => -1,
+            'cancelled' => -3,
+            default => -2,
+        };
     }
 
     /**

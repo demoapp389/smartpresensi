@@ -11,8 +11,9 @@ Route::prefix('v1/fingerprint')->middleware('throttle:fingerprint-ingest')->grou
     Route::get('/ping', [FingerprintIngestController::class, 'ping'])->name('api.fingerprint.ping');
 });
 
-// API Webhook WhatsApp (Meta Cloud API / Gateway)
-Route::prefix('v1/whatsapp')->group(function () {
+// API Webhook WhatsApp (Meta Cloud API / Gateway). Dibatasi rate limit per IP
+// karena endpoint ini publik, tanpa sesi, dan menulis log/query database.
+Route::prefix('v1/whatsapp')->middleware('throttle:whatsapp-webhook')->group(function () {
     Route::get('/webhook', [WhatsAppWebhookController::class, 'verify'])->name('api.whatsapp.webhook.verify');
     Route::post('/webhook', [WhatsAppWebhookController::class, 'handle'])->name('api.whatsapp.webhook.handle');
 });

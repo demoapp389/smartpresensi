@@ -69,14 +69,6 @@
 
     {{-- Hasil import terakhir ditampilkan di dalam modal import. --}}
 
-    @php
-        $pendingWaCount = \App\Models\Guardian::where('active', true)
-            ->where(function ($query) {
-                $query->where('wa_status', 'pending')->orWhereNull('wa_status');
-            })
-            ->count();
-    @endphp
-
     <!-- Table Card -->
     <section id="table-container" class="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)] overflow-hidden">
         {{-- Card header (.card-header Gentelella): judul + aksi --}}

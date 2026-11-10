@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureAdminRole;
+use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\EnsureUserRole;
 use App\Http\Middleware\RestrictPublicWebhookAccess;
 use Illuminate\Foundation\Application;
@@ -17,6 +18,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(RestrictPublicWebhookAccess::class);
+
+        // Sesi pengguna yang dinonaktifkan harus langsung diputus.
+        $middleware->web(append: [
+            EnsureUserIsActive::class,
+        ]);
 
         $middleware->alias([
             'admin' => EnsureAdminRole::class,

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ProcessAttendanceLogsJob;
 use App\Models\Attendance;
 use App\Models\AttendanceLog;
 use App\Models\DeviceUser;
@@ -12,6 +13,7 @@ use App\Models\Student;
 use App\Services\WhatsAppNotificationService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
@@ -99,6 +101,22 @@ class FingerprintIngestControllerTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_ingest_rejects_payloads_above_the_log_limit(): void
+    {
+        $device = $this->device();
+
+        $logs = array_fill(0, 501, [
+            'machine_user_id' => '7001',
+            'occurred_at' => '2026-10-14 07:05:12',
+        ]);
+
+        $this->postJson('/api/v1/fingerprint/ingest', ['logs' => $logs], ['X-Device-Token' => $device->secret_token])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('logs');
+
+        $this->assertDatabaseCount('attendance_logs', 0);
+    }
+
     public function test_ingest_resolves_the_device_from_the_x_device_token(): void
     {
         $this->device(['name' => 'Mesin Lain']);
@@ -127,6 +145,25 @@ class FingerprintIngestControllerTest extends TestCase
         $log = AttendanceLog::where('device_id', $device->id)->firstOrFail();
         $this->assertSame('unmapped', $log->status);
         $this->assertSame('9999', $log->machine_user_id);
+    }
+
+    public function test_ingest_queues_processing_job_instead_of_processing_synchronously(): void
+    {
+        Queue::fake();
+
+        $device = $this->device();
+
+        $this->postJson('/api/v1/fingerprint/ingest', $this->payload(), ['X-Device-Token' => $device->secret_token])
+            ->assertOk()
+            ->assertJsonPath('summary.new_inserted', 1)
+            ->assertJsonPath('summary.processing_queued', true);
+
+        $this->assertDatabaseCount('attendance_logs', 1);
+        $this->assertDatabaseCount('attendances', 0);
+        Queue::assertPushed(
+            ProcessAttendanceLogsJob::class,
+            fn (ProcessAttendanceLogsJob $job): bool => $job->deviceId === $device->id,
+        );
     }
 
     public function test_ingest_deduplicates_a_repeated_log(): void
@@ -205,7 +242,7 @@ class FingerprintIngestControllerTest extends TestCase
             '/api/v1/fingerprint/ingest',
             $this->payload('7001', $today->toDateString().' 14:05:00'),
             ['X-Device-Token' => $device->secret_token]
-        )->assertOk()->assertJsonPath('summary.attendances_processed', 1);
+        )->assertOk()->assertJsonPath('summary.processing_queued', true);
 
         $attendance = Attendance::where('student_id', $student->id)->firstOrFail();
 

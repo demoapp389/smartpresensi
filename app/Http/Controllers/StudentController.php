@@ -5,12 +5,15 @@ namespace App\Http\Controllers;
 use App\Concerns\LogsAuditTrail;
 use App\Http\Controllers\Concerns\HasHybridFilters;
 use App\Jobs\ImportStudentsFromExcel;
+use App\Models\Attendance;
 use App\Models\AttendanceLog;
 use App\Models\DeviceUser;
 use App\Models\FingerprintDevice;
 use App\Models\Guardian;
+use App\Models\NotificationLog;
 use App\Models\SchoolClass;
 use App\Models\Student;
+use App\Models\StudentBiometricTemplate;
 use App\Services\AttendanceLogProcessingService;
 use App\Services\AttendanceProcessingService;
 use App\Services\SimpleXlsxExporter;
@@ -22,6 +25,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -115,6 +119,13 @@ class StudentController extends Controller
         $devices = FingerprintDevice::where('active', true)->get();
         $trashedCount = Student::onlyTrashed()->count();
         $activeCount = Student::count();
+        // Jumlah wali aktif yang nomornya belum divalidasi. Dihitung di sini agar
+        // view tidak menjalankan query database sendiri.
+        $pendingWaCount = Guardian::where('active', true)
+            ->where(function ($query) {
+                $query->where('wa_status', 'pending')->orWhereNull('wa_status');
+            })
+            ->count();
 
         return view('students.index', compact(
             'students',
@@ -124,7 +135,8 @@ class StudentController extends Controller
             'classId',
             'status',
             'trashedCount',
-            'activeCount'
+            'activeCount',
+            'pendingWaCount'
         ));
     }
 
@@ -431,13 +443,16 @@ class StudentController extends Controller
         $devicePins = $student->deviceUsers()->pluck('machine_user_id')->all();
 
         DB::transaction(function () use ($student, $before) {
-            $student->guardians()->delete();
-            $student->attendances()->each(function ($att) {
-                $att->notifications()->delete();
-                $att->delete();
-            });
-            $student->deviceUsers()->delete();
-            $student->biometricTemplates()->delete();
+            $attendanceIds = Attendance::where('student_id', $student->id)->pluck('id');
+
+            if ($attendanceIds->isNotEmpty()) {
+                NotificationLog::whereIn('attendance_id', $attendanceIds)->delete();
+                Attendance::whereIn('id', $attendanceIds)->delete();
+            }
+
+            Guardian::where('student_id', $student->id)->delete();
+            DeviceUser::where('student_id', $student->id)->delete();
+            StudentBiometricTemplate::where('student_id', $student->id)->delete();
             $student->forceDelete();
 
             $this->logAudit('force_delete_student', 'Student', $student->id, $before, ['permanent' => true]);
@@ -474,16 +489,18 @@ class StudentController extends Controller
         $count = $students->count();
 
         DB::transaction(function () use ($students, $ids, $count) {
-            foreach ($students as $student) {
-                $student->guardians()->delete();
-                $student->attendances()->each(function ($att) {
-                    $att->notifications()->delete();
-                    $att->delete();
-                });
-                $student->deviceUsers()->delete();
-                $student->biometricTemplates()->delete();
-                $student->forceDelete();
+            $studentIds = $students->pluck('id')->all();
+            $attendanceIds = Attendance::whereIn('student_id', $studentIds)->pluck('id');
+
+            if ($attendanceIds->isNotEmpty()) {
+                NotificationLog::whereIn('attendance_id', $attendanceIds)->delete();
+                Attendance::whereIn('id', $attendanceIds)->delete();
             }
+
+            Guardian::whereIn('student_id', $studentIds)->delete();
+            DeviceUser::whereIn('student_id', $studentIds)->delete();
+            StudentBiometricTemplate::whereIn('student_id', $studentIds)->delete();
+            Student::whereIn('id', $studentIds)->forceDelete();
 
             $this->logAudit('bulk_force_delete_students', 'Student', 0, ['ids' => $ids], ['count' => $count, 'permanent' => true]);
         });
@@ -605,8 +622,15 @@ class StudentController extends Controller
         } catch (\Throwable $e) {
             Storage::delete($storedPath);
 
+            // Detail exception bisa memuat path server; catat di log, tampilkan
+            // pesan umum ke pengguna agar tidak membocorkan struktur berkas.
+            Log::warning('[Import Siswa] Gagal membaca file Excel.', [
+                'file' => $file->getClientOriginalName(),
+                'error' => $e->getMessage(),
+            ]);
+
             return redirect()->route('students.index')
-                ->withErrors(['file' => 'Gagal membaca isi file Excel: '.$e->getMessage()]);
+                ->withErrors(['file' => 'Gagal membaca isi file Excel. Pastikan file berformat .xlsx yang valid dan sesuai template.']);
         }
 
         if (count($rows) <= 1) {

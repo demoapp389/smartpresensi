@@ -11,11 +11,8 @@
     <link rel="alternate icon" type="image/png" href="{{ asset('logo_smart_presensi.png') }}">
     <link rel="apple-touch-icon" href="{{ asset('logo_smart_presensi.png') }}">
 
-    <!-- Inter & JetBrains Mono Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-
+    {{-- Font memakai stack sistem (lihat --font-sans di app.css) agar tidak
+         ada request render-blocking ke Google Fonts. --}}
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         [x-cloak] { display: none !important; }
@@ -294,8 +291,7 @@
                     &copy; {{ date('Y') }} <strong class="text-[var(--text-secondary)]">SmartPresensi Biometric Gateway</strong>
                 </div>
                 <div class="font-medium">
-                    Database MySQL: <span class="font-mono text-[var(--text-secondary)]">{{ config('database.connections.'.config('database.default').'.database') }}</span>
-                    &bull; <span class="text-[var(--text-secondary)]">{{ config('whatsapp.school_name', 'SMA Negeri 1') }}</span> &bull; <span class="font-mono text-[var(--text-muted)]">v2.2</span>
+                    <span class="text-[var(--text-secondary)]">{{ config('whatsapp.school_name', 'SMA Negeri 1') }}</span> &bull; <span class="font-mono text-[var(--text-muted)]">v2.2</span>
                 </div>
             </footer>
         </div>

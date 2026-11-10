@@ -55,18 +55,7 @@ class UserController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8'],
-            'role' => ['required', 'string', 'in:admin,operator,wali_kelas'],
-            'class_id' => ['nullable', 'required_if:role,wali_kelas', 'exists:classes,id'],
-            'is_active' => ['nullable', 'boolean'],
-        ], [
-            'class_id.required_if' => 'Kelas yang diampu wajib dipilih jika peran adalah Wali Kelas.',
-            'email.unique' => 'Email ini sudah digunakan oleh pengguna lain.',
-            'password.min' => 'Password minimal harus 8 karakter.',
-        ]);
+        $validated = $request->validate($this->userRules(), $this->userValidationMessages());
 
         $user = User::create([
             'name' => $validated['name'],
@@ -94,18 +83,7 @@ class UserController extends Controller
      */
     public function update(Request $request, User $user): RedirectResponse
     {
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
-            'password' => ['nullable', 'string', 'min:8'],
-            'role' => ['required', 'string', 'in:admin,operator,wali_kelas'],
-            'class_id' => ['nullable', 'required_if:role,wali_kelas', 'exists:classes,id'],
-            'is_active' => ['nullable', 'boolean'],
-        ], [
-            'class_id.required_if' => 'Kelas yang diampu wajib dipilih jika peran adalah Wali Kelas.',
-            'email.unique' => 'Email ini sudah digunakan oleh pengguna lain.',
-            'password.min' => 'Password minimal harus 8 karakter.',
-        ]);
+        $validated = $request->validate($this->userRules($user), $this->userValidationMessages());
 
         $before = [
             'name' => $user->name,
@@ -115,12 +93,20 @@ class UserController extends Controller
             'is_active' => $user->is_active,
         ];
 
+        $newRole = $validated['role'];
+        $newActive = $request->boolean('is_active', true);
+
+        if ($this->wouldRemoveLastActiveAdmin($user, $newRole, $newActive)) {
+            return redirect()->route('users.index')
+                ->with('error', 'Perubahan ditolak: sistem harus memiliki minimal satu Administrator aktif.');
+        }
+
         $payload = [
             'name' => $validated['name'],
             'email' => $validated['email'],
-            'role' => $validated['role'],
-            'class_id' => $validated['role'] === 'wali_kelas' ? $validated['class_id'] : null,
-            'is_active' => $request->boolean('is_active', true),
+            'role' => $newRole,
+            'class_id' => $newRole === 'wali_kelas' ? $validated['class_id'] : null,
+            'is_active' => $newActive,
         ];
 
         if (! empty($validated['password'])) {
@@ -151,6 +137,11 @@ class UserController extends Controller
                 ->with('error', 'Anda tidak dapat menghapus akun Anda sendiri yang sedang aktif digunakan.');
         }
 
+        if ($this->isLastActiveAdmin($user)) {
+            return redirect()->route('users.index')
+                ->with('error', 'Penghapusan ditolak: sistem harus memiliki minimal satu Administrator aktif.');
+        }
+
         $before = [
             'name' => $user->name,
             'email' => $user->email,
@@ -165,5 +156,85 @@ class UserController extends Controller
 
         return redirect()->route('users.index')
             ->with('success', "Pengguna {$userName} berhasil dihapus.");
+    }
+
+    /**
+     * Cek apakah perubahan role/status akan menghilangkan Administrator aktif terakhir.
+     */
+    private function wouldRemoveLastActiveAdmin(User $user, string $newRole, bool $newActive): bool
+    {
+        if ($user->role !== 'admin' || ! $user->is_active) {
+            return false;
+        }
+
+        if ($newRole === 'admin' && $newActive) {
+            return false;
+        }
+
+        return User::query()
+            ->where('role', 'admin')
+            ->where('is_active', true)
+            ->where('id', '!=', $user->id)
+            ->doesntExist();
+    }
+
+    /**
+     * Cek apakah pengguna adalah satu-satunya Administrator aktif.
+     */
+    private function isLastActiveAdmin(User $user): bool
+    {
+        if ($user->role !== 'admin' || ! $user->is_active) {
+            return false;
+        }
+
+        return User::query()
+            ->where('role', 'admin')
+            ->where('is_active', true)
+            ->where('id', '!=', $user->id)
+            ->doesntExist();
+    }
+
+    /**
+     * Aturan validasi formulir pengguna.
+     *
+     * Dipakai bersama oleh store() dan update() agar aturan tidak menyimpang:
+     * saat membuat akun password wajib, saat mengubah akun password opsional.
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    private function userRules(?User $user = null): array
+    {
+        return [
+            'name' => ['required', 'string', 'max:255'],
+            'email' => [
+                'required',
+                'string',
+                'email',
+                'max:255',
+                $user === null
+                    ? 'unique:users,email'
+                    : Rule::unique('users', 'email')->ignore($user->id),
+            ],
+            'password' => $user === null
+                ? ['required', 'string', 'min:8']
+                : ['nullable', 'string', 'min:8'],
+            'role' => ['required', 'string', 'in:admin,operator,wali_kelas'],
+            'class_id' => ['nullable', 'required_if:role,wali_kelas', 'exists:classes,id'],
+            'is_active' => ['nullable', 'boolean'],
+        ];
+    }
+
+    /**
+     * Pesan validasi formulir pengguna.
+     *
+     * @return array<string, string>
+     */
+    private function userValidationMessages(): array
+    {
+        return [
+            'class_id.required_if' => 'Kelas yang diampu wajib dipilih jika peran adalah Wali Kelas.',
+            'email.unique' => 'Email ini sudah digunakan oleh pengguna lain.',
+            'password.min' => 'Password minimal harus 8 karakter.',
+        ];
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Concerns\LogsAuditTrail;
 use App\Models\SchoolClass;
+use App\Models\SchoolSchedule;
 use App\Models\Student;
 use App\Services\AttendancePeriodService;
 use App\Services\AttendanceReportService;
@@ -204,7 +205,15 @@ class AttendanceReportController extends Controller
             default => $this->reportService->getDailyReport($filters, 0),
         };
 
-        return view('reports.print', compact('reportData', 'type', 'filters'));
+        // Jam masuk/pulang hari tersebut dipakai pada kop laporan harian. Dibaca
+        // di controller supaya view tidak menjalankan query database.
+        $dailySchedule = $type === 'daily'
+            ? SchoolSchedule::where('day_of_week', Carbon::parse($date, 'Asia/Jakarta')->dayOfWeekIso)
+                ->where('is_active', true)
+                ->first()
+            : null;
+
+        return view('reports.print', compact('reportData', 'type', 'filters', 'dailySchedule'));
     }
 
     /**

@@ -22,6 +22,8 @@ class SendWhatsAppNotificationJob implements ShouldQueue
 
     public int $tries = 3;
 
+    public int $timeout = 60;
+
     public array $backoff = [30, 60, 180];
 
     public int $notificationId;
@@ -43,6 +45,12 @@ class SendWhatsAppNotificationJob implements ShouldQueue
 
         if (! $lock->get()) {
             Log::info("[SendWhatsAppNotificationJob] Pesan {$this->notificationId} sedang diproses oleh worker lain.");
+
+            // Jangan biarkan job dianggap sukses saat lock gagal; kembalikan ke antrean
+            // agar tidak berhenti permanen di status "queued".
+            if ($this->job !== null) {
+                $this->release(10);
+            }
 
             return;
         }

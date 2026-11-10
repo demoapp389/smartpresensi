@@ -62,9 +62,8 @@ class AuthAndDashboardTest extends TestCase
         $response->assertSee('WhatsApp Gateway (Outbox)');
         $response->assertSee('Tepat Waktu');
 
-        // Footer menampilkan nama database dari konfigurasi, bukan string statis.
-        $response->assertSee('Database MySQL:');
-        $response->assertSee((string) config('database.connections.'.config('database.default').'.database'), false);
+        // Footer tidak lagi menampilkan detail koneksi database internal.
+        $response->assertDontSee('Database MySQL:');
         $response->assertDontSee('absensi_siswa');
     }
 

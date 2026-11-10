@@ -20,12 +20,9 @@
 /public/storage
 /storage/*.key
 /storage/pail
-/storage/t.txt
 /vendor
 /dist
 
-# Template frontend lama yang tidak dipakai
-/gentelella-master/
 /deploy/com/*.dll
 /deploy/com/*.zip
 
@@ -38,7 +35,6 @@ __pycache__/
 /runtime/
 # State/laporan lokal bootstrap
 /scripts/state/
-connector/python_path.txt
 
 # Artefak build bootstrap setup assistant (Go)
 /deploy/setup-assistant/setup-assistant.exe

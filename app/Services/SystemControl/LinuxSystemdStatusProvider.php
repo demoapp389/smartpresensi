@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Process;
 class LinuxSystemdStatusProvider extends SystemStatusProvider
 {
     /**
-     * @var array{worker: string, connector: string, scheduler: string}
+     * @var array{worker: string, worker_long: string, connector: string, scheduler: string}
      */
     private array $units;
 
@@ -36,6 +36,7 @@ class LinuxSystemdStatusProvider extends SystemStatusProvider
     {
         $this->units = [
             'worker' => (string) config('system_control.units.worker', 'smartpresensi-worker'),
+            'worker_long' => (string) config('system_control.units.worker_long', 'smartpresensi-worker-long'),
             'connector' => (string) config('system_control.units.connector', 'solutionx601-connector'),
             'scheduler' => (string) config('system_control.units.scheduler', 'smartpresensi-scheduler'),
         ];
@@ -65,6 +66,7 @@ class LinuxSystemdStatusProvider extends SystemStatusProvider
     {
         $connector = $this->serviceState($this->units['connector']);
         $worker = $this->serviceState($this->units['worker']);
+        $workerLong = $this->serviceState($this->units['worker_long']);
         $scheduler = $this->schedulerState();
 
         $queue = $this->queueMetrics();
@@ -75,7 +77,15 @@ class LinuxSystemdStatusProvider extends SystemStatusProvider
             && $scheduler['status'] === 'unavailable';
 
         $connectorRunning = $connector['running'];
-        $workerRunning = $worker['running'];
+        $workerLongInstalled = $workerLong['status'] !== 'not_installed';
+        $workerRunning = $worker['running']
+            && (! $workerLongInstalled || $workerLong['running']);
+        $workerStatus = $worker['status'];
+
+        if ($workerLongInstalled && $worker['status'] !== 'unavailable' && ! $workerLong['running']) {
+            $workerStatus = $workerLong['status'] === 'starting' ? 'starting' : 'stopped';
+        }
+
         $schedulerEnabled = $scheduler['enabled'];
         $schedulerRunning = $scheduler['running'];
 
@@ -137,14 +147,20 @@ class LinuxSystemdStatusProvider extends SystemStatusProvider
             ],
             'worker' => [
                 'label' => 'Laravel Queue Worker',
-                'description' => 'Memproses antrean kirim notifikasi WhatsApp ke wali siswa',
+                'description' => 'Memproses antrean notifikasi WhatsApp dan validasi nomor wali',
                 'running' => $workerRunning,
-                'status' => $worker['status'],
+                'status' => $workerStatus,
                 'pid' => $worker['pid'],
                 'restarts' => $worker['restarts'],
                 'started_at' => $worker['started_at'],
                 'pending_jobs' => $queue['pending_jobs'],
                 'failed_jobs' => $queue['failed_jobs'],
+                'long_running' => [
+                    'installed' => $workerLongInstalled,
+                    'running' => $workerLong['running'],
+                    'status' => $workerLong['status'],
+                    'pid' => $workerLong['pid'],
+                ],
             ],
             'scheduler' => [
                 'enabled' => $schedulerEnabled,
@@ -381,10 +397,10 @@ class LinuxSystemdStatusProvider extends SystemStatusProvider
     private function manualRestartCommand(string $service): string
     {
         return match ($service) {
-            'worker' => 'sudo systemctl restart '.$this->units['worker'],
+            'worker' => 'sudo systemctl restart '.$this->units['worker'].' '.$this->units['worker_long'],
             'connector' => 'sudo systemctl restart '.$this->units['connector'],
             'scheduler' => 'sudo systemctl restart '.$this->units['scheduler'],
-            'all' => 'sudo systemctl restart '.$this->units['worker'].' '.$this->units['connector'].' '.$this->units['scheduler'],
+            'all' => 'sudo systemctl restart '.$this->units['worker'].' '.$this->units['worker_long'].' '.$this->units['connector'].' '.$this->units['scheduler'],
             default => 'sudo systemctl restart '.$this->units['worker'],
         };
     }

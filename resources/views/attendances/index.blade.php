@@ -21,9 +21,7 @@
         </div>
     @endif
 
-    {{-- Filter dipindah ke toolbar DataTables oleh tables.js: dropdown jumlah
-         baris + filter di kiri, kotak pencarian bawaan DataTables di kanan.
-         Tetap form GET biasa bila JS mati. --}}
+    {{-- Filter dijalankan di server; hasil dibatasi per halaman. --}}
     <form id="attendance-filter" method="GET" action="{{ route('attendances.index') }}" class="flex flex-wrap items-center gap-2 text-xs">
         <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5">
             <label for="date" class="text-[var(--text-secondary)] font-medium whitespace-nowrap">Tanggal:</label>
@@ -108,7 +106,7 @@
         @endphp
 
         <div>
-            <table class="min-w-[1000px] w-full text-left text-xs" data-datatable data-page-length="25" data-length-change="true" data-toolbar-filter="#attendance-filter" data-empty-message="Tidak ada catatan presensi pada tanggal dan filter yang dipilih">
+            <table class="min-w-[1000px] w-full text-left text-xs">
                 <thead class="bg-[var(--surface-secondary)] text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider border-b border-[var(--border-subtle)]">
                     <tr>
                         <th scope="col" class="px-4 py-2.5">Nama Siswa</th>
@@ -125,7 +123,7 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-[var(--border-subtle)] text-[13px]">
-                    @foreach($attendances as $att)
+                    @forelse($attendances as $att)
                     @php
                         $studentName = $att->student?->name ?? 'Siswa tidak tersedia';
                         $studentNis = $att->student?->nis ?? '-';
@@ -259,9 +257,27 @@
                             @endif
                         </td>
                     </tr>
-                    @endforeach
+                    @empty
+                    <tr>
+                        <td colspan="{{ $showClassCol ? 9 : 8 }}" class="px-4 py-8 text-center text-sm text-[var(--text-muted)]">
+                            Tidak ada catatan presensi pada tanggal dan filter yang dipilih.
+                        </td>
+                    </tr>
+                    @endforelse
                 </tbody>
             </table>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-3 text-xs">
+            <div class="flex items-center gap-3">
+                <span class="text-[12px] text-[var(--text-muted)]">
+                    Menampilkan {{ $attendances->firstItem() ?? 0 }}–{{ $attendances->lastItem() ?? 0 }} dari {{ $attendances->total() }} presensi
+                </span>
+                @include('partials.per-page', ['paginator' => $attendances])
+            </div>
+            <div>
+                {{ $attendances->links() }}
+            </div>
         </div>
     </section>
 </div>
