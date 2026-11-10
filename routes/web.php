@@ -11,6 +11,7 @@ use App\Http\Controllers\DocumentationController;
 use App\Http\Controllers\FingerprintDeviceController;
 use App\Http\Controllers\GuardianValidationController;
 use App\Http\Controllers\NotificationLogController;
+use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SchoolClassController;
 use App\Http\Controllers\SchoolScheduleController;
@@ -27,6 +28,16 @@ Route::post('/login', [AuthController::class, 'login'])
     ->middleware('throttle:5,1')
     ->name('login.process');
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+
+// Lupa & reset kata sandi (self-service)
+Route::get('/forgot-password', [PasswordResetController::class, 'showLinkRequestForm'])->name('password.request');
+Route::post('/forgot-password', [PasswordResetController::class, 'sendResetLinkEmail'])
+    ->middleware('throttle:6,1')
+    ->name('password.email');
+Route::get('/reset-password/{token}', [PasswordResetController::class, 'showResetForm'])->name('password.reset');
+Route::post('/reset-password', [PasswordResetController::class, 'reset'])
+    ->middleware('throttle:6,1')
+    ->name('password.store');
 
 // Rute Internal Aplikasi (Membutuhkan Login)
 Route::middleware('auth')->group(function () {
@@ -146,12 +157,20 @@ Route::middleware('auth')->group(function () {
 
         // 7. Pengaturan Jadwal Sekolah & Kalender Libur
         Route::get('/schedules', [SchoolScheduleController::class, 'index'])->name('schedules.index');
+        Route::put('/schedules/attendance-start', [SchoolScheduleController::class, 'updateAttendanceStart'])->name('schedules.attendance-start.update');
         Route::put('/schedules/{schedule}', [SchoolScheduleController::class, 'update'])->name('schedules.update');
+        Route::post('/schedules/periods', [SchoolScheduleController::class, 'storePeriod'])->name('schedules.periods.store');
+        Route::put('/schedules/periods/{period}', [SchoolScheduleController::class, 'updatePeriod'])->name('schedules.periods.update');
+        Route::delete('/schedules/periods/{period}', [SchoolScheduleController::class, 'destroyPeriod'])->name('schedules.periods.destroy');
         Route::post('/schedules/holidays', [SchoolScheduleController::class, 'storeHoliday'])->name('schedules.holidays.store');
         Route::put('/schedules/holidays/{holiday}', [SchoolScheduleController::class, 'updateHoliday'])->name('schedules.holidays.update');
         Route::delete('/schedules/holidays/{holiday}', [SchoolScheduleController::class, 'destroyHoliday'])->name('schedules.holidays.destroy');
 
         // Tinjauan scan dengan waktu mesin yang tidak wajar (khusus admin).
+        Route::post('/logs/raw/time-review/bulk-approve', [AttendanceLogController::class, 'bulkApproveTimeReview'])
+            ->name('logs.raw.time-review.bulk-approve');
+        Route::post('/logs/raw/time-review/bulk-reject', [AttendanceLogController::class, 'bulkRejectTimeReview'])
+            ->name('logs.raw.time-review.bulk-reject');
         Route::post('/logs/raw/{log}/time-review/approve', [AttendanceLogController::class, 'approveTimeReview'])
             ->name('logs.raw.time-review.approve');
         Route::post('/logs/raw/{log}/time-review/reject', [AttendanceLogController::class, 'rejectTimeReview'])

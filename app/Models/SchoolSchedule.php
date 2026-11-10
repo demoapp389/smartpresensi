@@ -6,6 +6,8 @@ use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Collection;
 
 class SchoolSchedule extends Model
 {
@@ -15,6 +17,7 @@ class SchoolSchedule extends Model
         'day_pattern',
         'day_name',
         'day_of_week',
+        'period_id',
         'check_in_start',
         'check_in_end',
         'start_at',
@@ -31,6 +34,7 @@ class SchoolSchedule extends Model
 
     protected $casts = [
         'day_of_week' => 'integer',
+        'period_id' => 'integer',
         'late_tolerance_minutes' => 'integer',
         'early_leave_tolerance_minutes' => 'integer',
         'effective_date' => 'date',
@@ -38,16 +42,93 @@ class SchoolSchedule extends Model
     ];
 
     /**
-     * Ambil daftar nomor hari kerja aktif (ISO: 1 = Senin ... 7 = Minggu).
+     * @return BelongsTo<SchedulePeriod, $this>
+     */
+    public function period(): BelongsTo
+    {
+        return $this->belongsTo(SchedulePeriod::class, 'period_id');
+    }
+
+    /**
+     * Ambil daftar nomor hari kerja aktif (ISO: 1 = Senin ... 7 = Minggu)
+     * dari jadwal reguler saja. Jadwal khusus dinilai per tanggal.
      *
      * @return array<int>
      */
     public static function getActiveDayNumbers(): array
     {
-        return static::where('is_active', true)
+        return static::whereNull('period_id')
+            ->where('is_active', true)
             ->pluck('day_of_week')
             ->map(fn ($d) => (int) $d)
             ->all();
+    }
+
+    /**
+     * Jadwal yang berlaku pada tanggal tertentu. Jadwal khusus pada periode
+     * yang mencakup tanggal tersebut menimpa jadwal reguler.
+     */
+    public static function resolveForDate(CarbonInterface $date): ?self
+    {
+        return static::resolveFrom(
+            $date,
+            static::query()->get(),
+            SchedulePeriod::query()->where('is_active', true)->get(),
+        );
+    }
+
+    /**
+     * Versi resolver yang menerima koleksi yang sudah dimuat, untuk menghindari
+     * query berulang saat menelusuri rentang tanggal (laporan, alpa, dll).
+     *
+     * @param  Collection<int, self>  $schedules
+     * @param  Collection<int, SchedulePeriod>  $periods
+     */
+    public static function resolveFrom(
+        CarbonInterface $date,
+        Collection $schedules,
+        Collection $periods,
+    ): ?self {
+        $dateString = $date->toDateString();
+        $dayOfWeek = (int) $date->dayOfWeekIso;
+
+        $period = $periods->first(
+            fn (SchedulePeriod $candidate): bool => $candidate->is_active && $candidate->coversDate($date)
+        );
+
+        if ($period !== null) {
+            return $schedules->first(
+                fn (self $schedule): bool => (int) $schedule->period_id === (int) $period->id
+                    && (int) $schedule->day_of_week === $dayOfWeek
+            );
+        }
+
+        return $schedules->first(
+            fn (self $schedule): bool => $schedule->period_id === null
+                && (int) $schedule->day_of_week === $dayOfWeek
+        );
+    }
+
+    /**
+     * Jadwal aktif yang berlaku pada tanggal tertentu.
+     */
+    public static function forDate(CarbonInterface $date): ?self
+    {
+        $schedule = static::resolveForDate($date);
+
+        return $schedule?->is_active ? $schedule : null;
+    }
+
+    /**
+     * Apakah ada periode khusus (aktif) yang mencakup tanggal ini.
+     */
+    public static function hasPeriodCovering(CarbonInterface $date): bool
+    {
+        return SchedulePeriod::query()
+            ->where('is_active', true)
+            ->whereDate('start_date', '<=', $date->toDateString())
+            ->whereDate('end_date', '>=', $date->toDateString())
+            ->exists();
     }
 
     /**
@@ -55,22 +136,41 @@ class SchoolSchedule extends Model
      */
     public static function isSchoolDay(CarbonInterface|string|int $day): bool
     {
-        if ($day instanceof CarbonInterface) {
-            $dayOfWeek = (int) $day->dayOfWeekIso;
-        } elseif (is_numeric($day)) {
+        if (is_numeric($day)) {
             $dayOfWeek = (int) $day;
-        } else {
-            $dayOfWeek = (int) Carbon::parse($day, 'Asia/Jakarta')->dayOfWeekIso;
+            $activeDays = static::getActiveDayNumbers();
+
+            if (empty($activeDays)) {
+                return in_array($dayOfWeek, [1, 2, 3, 4, 5, 6], true);
+            }
+
+            return in_array($dayOfWeek, $activeDays, true);
+        }
+
+        $date = $day instanceof CarbonInterface
+            ? $day
+            : Carbon::parse($day, 'Asia/Jakarta');
+
+        $schedule = static::resolveForDate($date);
+
+        if ($schedule !== null) {
+            return (bool) $schedule->is_active;
+        }
+
+        // Periode khusus yang tidak mendefinisikan hari ini dianggap libur,
+        // bukan kembali ke jadwal reguler.
+        if (static::hasPeriodCovering($date)) {
+            return false;
         }
 
         $activeDays = static::getActiveDayNumbers();
 
         // Jika belum ada jadwal yang dikonfigurasi sama sekali di database, fallback Senin-Sabtu (1-6)
         if (empty($activeDays)) {
-            return in_array($dayOfWeek, [1, 2, 3, 4, 5, 6], true);
+            return in_array($date->dayOfWeekIso, [1, 2, 3, 4, 5, 6], true);
         }
 
-        return in_array($dayOfWeek, $activeDays, true);
+        return in_array($date->dayOfWeekIso, $activeDays, true);
     }
 
     /**

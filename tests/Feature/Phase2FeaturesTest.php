@@ -22,6 +22,13 @@ class Phase2FeaturesTest extends TestCase
         $this->artisan('db:seed');
     }
 
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
     public function test_can_create_and_delete_class(): void
     {
         $admin = User::where('role', 'admin')->first();
@@ -185,6 +192,8 @@ class Phase2FeaturesTest extends TestCase
 
     public function test_fingerprint_api_ingest_from_csharp_connector(): void
     {
+        Carbon::setTestNow(Carbon::parse('2026-11-10 07:30:00', 'Asia/Jakarta'));
+
         $device = FingerprintDevice::first();
         $class = SchoolClass::create(['name' => 'X MIPA 1', 'academic_year' => '2026/2027']);
         $student = Student::create([
@@ -229,6 +238,8 @@ class Phase2FeaturesTest extends TestCase
 
     public function test_unmapped_log_can_be_mapped_and_auto_processed(): void
     {
+        Carbon::setTestNow(Carbon::parse('2026-11-10 07:30:00', 'Asia/Jakarta'));
+
         $admin = User::where('role', 'admin')->first();
         $this->actingAs($admin);
 

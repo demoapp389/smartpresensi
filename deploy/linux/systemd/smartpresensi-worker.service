@@ -13,6 +13,8 @@ ExecStart=/usr/bin/php8.3 artisan queue:work --queue=default,validations,long-ru
 Restart=always
 RestartSec=5
 TimeoutStopSec=90
+StandardOutput=append:/var/www/smartpresensi/storage/logs/queue_worker_service.log
+StandardError=append:/var/www/smartpresensi/storage/logs/queue_worker_service.log
 
 [Install]
 WantedBy=multi-user.target

@@ -11,6 +11,10 @@ use Illuminate\Validation\ValidationException;
 
 class AttendanceCorrectionService
 {
+    public function __construct(
+        protected AttendancePeriodService $periodService
+    ) {}
+
     public const MANUAL_STATUSES = ['izin', 'sakit', 'alpa'];
 
     public const HOMEROOM_STATUSES = ['izin', 'sakit'];
@@ -32,8 +36,14 @@ class AttendanceCorrectionService
      */
     public function allowedStatusesFor(User $user, Attendance $attendance): array
     {
+        if ($this->periodService->isBeforeStart($attendance->school_date)) {
+            return [];
+        }
+
+        // Scan masuk + pulang adalah bukti kehadiran lengkap. Status mengikuti
+        // data mesin dan tidak boleh ditimpa manual oleh peran apa pun.
         if ($this->hasCompleteScan($attendance)) {
-            return $user->isAdmin() ? self::ABSENCE_STATUSES : [];
+            return [];
         }
 
         if ($this->hasCheckoutOnly($attendance)) {
@@ -62,6 +72,7 @@ class AttendanceCorrectionService
     public function assertCanCorrect(User $user, Attendance $attendance, string $status): void
     {
         $this->assertUserCanCorrect($user);
+        $this->assertAttendanceIsActive($attendance);
 
         if ($user->isHomeroomTeacher() && ! $this->isInHomeroomScope($user, $attendance)) {
             throw new AuthorizationException('Akses ditolak: presensi ini bukan milik kelas yang Anda ampu.');
@@ -94,6 +105,16 @@ class AttendanceCorrectionService
     {
         $this->assertCanBulkCorrect($user, $status);
 
+        $beforeStart = $attendances
+            ->filter(fn (Attendance $attendance): bool => $this->periodService->isBeforeStart($attendance->school_date))
+            ->values();
+
+        if ($beforeStart->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'ids' => "Koreksi massal dibatalkan karena ada presensi sebelum tanggal mulai sistem absensi. Siswa: {$this->studentNames($beforeStart)}.",
+            ]);
+        }
+
         $invalidScanned = $attendances
             ->filter(fn (Attendance $attendance): bool => $this->hasScanEvidence($attendance))
             ->values();
@@ -121,6 +142,10 @@ class AttendanceCorrectionService
             return false;
         }
 
+        if ($this->periodService->isBeforeStart($attendance->school_date)) {
+            return false;
+        }
+
         return ($attendance->check_in_at !== null) xor ($attendance->check_out_at !== null);
     }
 
@@ -140,6 +165,7 @@ class AttendanceCorrectionService
     public function canUseAdminScanException(User $user, Attendance $attendance): bool
     {
         return $user->isAdmin()
+            && ! $this->periodService->isBeforeStart($attendance->school_date)
             && $attendance->check_in_at === null
             && $attendance->check_out_at !== null;
     }
@@ -199,8 +225,13 @@ class AttendanceCorrectionService
         ?Attendance $attendance,
         string $status,
         string $overrideReason,
+        ?string $schoolDate = null,
     ): array {
         $this->assertManualInputAllowed($user, $student, $attendance, $status);
+
+        if ($schoolDate !== null) {
+            $this->periodService->assertNotBeforeStart($schoolDate);
+        }
 
         return array_merge(
             $this->baseOverrideAttributes($status, $overrideReason, $user->id),
@@ -218,19 +249,12 @@ class AttendanceCorrectionService
      */
     public function overrideAttributes(Attendance $attendance, string $status, string $overrideReason, int $operatorId): array
     {
-        if ($this->hasCompleteScan($attendance)) {
-            if (! in_array($status, self::ABSENCE_STATUSES, true)) {
-                throw ValidationException::withMessages([
-                    'status' => 'Presensi dengan scan lengkap hanya dapat dikoreksi ke Izin, Sakit, atau Alpa.',
-                ]);
-            }
+        $this->assertAttendanceIsActive($attendance);
 
-            return $this->baseOverrideAttributes(
-                $status,
-                $overrideReason,
-                $operatorId,
-                Attendance::POLICY_VERSION_SCAN_CORRECTION
-            );
+        if ($this->hasCompleteScan($attendance)) {
+            throw ValidationException::withMessages([
+                'status' => 'Presensi sudah memiliki scan masuk dan pulang. Status mengikuti data scan dan tidak dapat diubah.',
+            ]);
         }
 
         if ($this->hasCheckoutOnly($attendance)) {
@@ -305,6 +329,15 @@ class AttendanceCorrectionService
         }
     }
 
+    private function assertAttendanceIsActive(Attendance $attendance): void
+    {
+        if ($this->periodService->isBeforeStart($attendance->school_date)) {
+            throw ValidationException::withMessages([
+                'status' => 'Presensi ini berada sebelum tanggal mulai sistem absensi dan tidak dapat diubah.',
+            ]);
+        }
+    }
+
     private function assertManualInputAllowed(
         User $user,
         Student $student,
@@ -337,6 +370,10 @@ class AttendanceCorrectionService
             throw ValidationException::withMessages([
                 'status' => "Status {$this->statusLabel($status)} tidak dapat dicatat karena sudah ada bukti scan. Kehadiran mengikuti data scan.",
             ]);
+        }
+
+        if ($attendance !== null) {
+            $this->assertAttendanceIsActive($attendance);
         }
     }
 
@@ -397,11 +434,7 @@ class AttendanceCorrectionService
     private function rejectionMessage(User $user, Attendance $attendance, string $status): string
     {
         if ($this->hasCompleteScan($attendance)) {
-            if (! $user->isAdmin()) {
-                return 'Presensi dengan scan lengkap hanya dapat dikoreksi oleh admin.';
-            }
-
-            return 'Presensi dengan scan lengkap hanya dapat dikoreksi ke Izin, Sakit, atau Alpa.';
+            return 'Presensi sudah memiliki scan masuk dan pulang. Status mengikuti data scan dan tidak dapat diubah.';
         }
 
         if ($this->hasCheckoutOnly($attendance)) {

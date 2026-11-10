@@ -2,25 +2,41 @@
 
 namespace App\Services;
 
+use App\Models\SchedulePeriod;
 use App\Models\SchoolHoliday;
 use App\Models\SchoolSchedule;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 
 class AttendanceAlpaService
 {
+    public function __construct(
+        protected AttendancePeriodService $periodService
+    ) {}
+
     /**
      * Tanggal efektif yang sudah melewati batas Alpa pada rentang tertentu.
+     *
+     * Tanggal sebelum tanggal mulai sistem absensi tidak pernah dianggap
+     * sebagai hari Alpa, termasuk saat rentang dimulai lebih awal.
      *
      * @return array<string, Carbon>
      */
     public function getAlpaDateKeys(Carbon $startDate, Carbon $endDate, ?Carbon $now = null): array
     {
+        $startDate = $this->periodService->clamp($startDate->copy()->startOfDay());
+
+        if ($startDate->gt($endDate->copy()->endOfDay())) {
+            return [];
+        }
+
         $timezone = $startDate->getTimezone();
         $now ??= now($timezone);
 
-        $schedules = SchoolSchedule::where('is_active', true)
-            ->get()
-            ->keyBy(fn (SchoolSchedule $schedule): int => (int) $schedule->day_of_week);
+        /** @var Collection<int, SchoolSchedule> $schedules */
+        $schedules = SchoolSchedule::query()->get();
+        /** @var Collection<int, SchedulePeriod> $periods */
+        $periods = SchedulePeriod::query()->where('is_active', true)->get();
 
         $holidays = SchoolHoliday::active()
             ->whereDate('start_date', '<=', $endDate->toDateString())
@@ -33,14 +49,14 @@ class AttendanceAlpaService
 
         while ($cursor->lte($lastDate)) {
             $dateKey = $cursor->toDateString();
-            $schedule = $schedules->get((int) $cursor->dayOfWeekIso);
+            $schedule = SchoolSchedule::resolveFrom($cursor, $schedules, $periods);
 
             $isHoliday = $holidays->contains(
                 fn (SchoolHoliday $holiday): bool => $dateKey >= $holiday->start_date->toDateString()
                     && $dateKey <= $holiday->end_date->toDateString()
             );
 
-            if ($schedule instanceof SchoolSchedule && $schedule->end_at && ! $isHoliday) {
+            if ($schedule instanceof SchoolSchedule && $schedule->is_active && $schedule->end_at && ! $isHoliday) {
                 $cutoff = $schedule->alpaCutoffForDate($cursor);
 
                 if ($now->greaterThanOrEqualTo($cutoff)) {

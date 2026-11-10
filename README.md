@@ -7,6 +7,25 @@ absensi, dan panel admin.
 Repositori ini disiapkan untuk pemasangan di **server Linux headless** (SSH, tanpa GUI).
 Panduan lengkap ada di [`docs/PANDUAN_DEPLOYMENT_LINUX.md`](docs/PANDUAN_DEPLOYMENT_LINUX.md).
 
+## Fitur utama
+
+- Presensi fingerprint multi-mesin melalui connector (ZK LAN) atau Web SOAP, dengan
+  pemetaan PIN, pemrosesan ulang log historis, dan riwayat sinkronisasi.
+- Jadwal mingguan dengan jendela scan masuk/pulang, toleransi, hari libur khusus, dan
+  **jadwal khusus per rentang tanggal** (mis. Ramadan) yang tidak menghitung ulang
+  presensi lama.
+- **Tanggal mulai sistem absensi** global yang diatur Administrator pada tab
+  *Mulai Sistem* di halaman Jadwal Absensi. Data dan scan sebelum tanggal tersebut
+  disembunyikan (tetap tersimpan untuk audit), dan sistem tidak membuat Alpa otomatis,
+  baris perlu tinjauan, atau catatan manual pada tanggal lama.
+- Koreksi satu/beberapa siswa sekaligus, presensi manual, serta penguncian status bila
+  bukti scan sudah lengkap agar catatan tidak bertentangan dengan data mesin.
+- Peninjauan waktu scan (setujui/tolak satuan maupun massal) saat jam mesin menyimpang.
+- Laporan harian, bulanan, per kelas, dan per siswa (cetak A4/PDF serta ekspor Excel).
+- Notifikasi WhatsApp ke wali (template, outbox, validasi nomor, siaran pengumuman).
+- Login dengan reset kata sandi via email, log audit, backup database, dan Pusat Kontrol
+  Sistem untuk memantau layanan.
+
 ## Kebutuhan server
 
 - Linux 64-bit (contoh: Ubuntu 24.04 LTS), RAM minimal 2 GB (disarankan 4 GB).

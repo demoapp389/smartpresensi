@@ -14,7 +14,18 @@
 @endsection
 
 @section('content')
-<div class="space-y-4">
+@php
+    $canBulkReview = $status === \App\Models\AttendanceLog::STATUS_NEEDS_REVIEW && auth()->user()?->isAdmin();
+@endphp
+<div class="space-y-4" x-data="{
+    selected: [],
+    note: '',
+    toggleAll(event) {
+        this.selected = event.target.checked
+            ? Array.from(document.querySelectorAll('.time-review-checkbox')).map((el) => Number(el.value))
+            : [];
+    }
+}">
     @if($timeReviewCount > 0 && $status !== \App\Models\AttendanceLog::STATUS_NEEDS_REVIEW)
         <a href="{{ route('logs.raw', ['status' => \App\Models\AttendanceLog::STATUS_NEEDS_REVIEW, 'date' => 'all']) }}" class="flex items-center justify-between gap-3 rounded-[var(--radius)] border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-900 transition-colors hover:bg-orange-100">
             <span class="font-semibold">{{ $timeReviewCount }} scan menunggu tinjauan waktu (termasuk tanggal historis).</span>
@@ -28,13 +39,55 @@
         </div>
     @endif
 
+    @if($canBulkReview)
+        <form id="bulk-time-review" method="POST" action="{{ route('logs.raw.time-review.bulk-approve') }}"
+            x-show="selected.length > 0" x-cloak x-transition
+            class="flex flex-wrap items-end gap-2.5 rounded-[var(--radius)] border border-[var(--primary)]/40 bg-[var(--primary-soft)] px-4 py-3 text-xs">
+            @csrf
+            <template x-for="id in selected" :key="id">
+                <input type="hidden" name="ids[]" :value="id">
+            </template>
+
+            <div class="flex items-center gap-1.5 font-semibold text-[var(--text)]">
+                <span class="inline-flex items-center justify-center min-w-6 h-6 px-1.5 rounded-full bg-[var(--primary)] text-white text-[11px] font-mono" x-text="selected.length"></span>
+                <span>scan dipilih</span>
+            </div>
+
+            <div class="flex-1 min-w-[220px]">
+                <label for="bulk_review_note" class="block font-semibold text-[var(--text)] mb-1">Alasan persetujuan/penolakan</label>
+                <input type="text" id="bulk_review_note" name="review_note" x-model="note" required maxlength="500"
+                    placeholder="Contoh: jam mesin terlambat, scan tetap valid"
+                    class="h-8.5 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none">
+            </div>
+
+            <div class="flex items-center gap-1.5">
+                <button type="submit"
+                    class="inline-flex items-center px-3 py-1.5 rounded-[var(--radius-sm)] border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-[11px] font-semibold text-emerald-800 transition-colors cursor-pointer">
+                    Setujui Massal
+                </button>
+                <button type="submit" formaction="{{ route('logs.raw.time-review.bulk-reject') }}"
+                    class="inline-flex items-center px-3 py-1.5 rounded-[var(--radius-sm)] border border-rose-200 bg-rose-50 hover:bg-rose-100 text-[11px] font-semibold text-rose-800 transition-colors cursor-pointer">
+                    Tolak Massal
+                </button>
+                <button type="button" @click="selected = []; note = ''"
+                    class="inline-flex items-center px-2.5 py-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-secondary)] text-[11px] font-semibold text-[var(--text-secondary)] transition-colors cursor-pointer">
+                    Batal
+                </button>
+            </div>
+
+            <p class="w-full text-[10px] text-[var(--text-secondary)]">
+                Maksimal 200 scan per proses. Scan yang statusnya sudah berubah akan dilewati otomatis.
+            </p>
+        </form>
+    @endif
+
     {{-- Filter dipindah ke toolbar DataTables oleh tables.js: dropdown jumlah
          baris + filter di kiri, kotak pencarian bawaan DataTables di kanan.
          Tetap form GET biasa bila JS mati. --}}
     <form id="raw-filter" method="GET" action="{{ route('logs.raw') }}" class="flex flex-wrap items-center gap-2 text-xs">
         <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5">
             <label for="date" class="text-[var(--text-secondary)] font-medium whitespace-nowrap">Tanggal Scan:</label>
-            <input type="date" id="date" name="date" value="{{ $dateInput }}" onchange="this.value && this.form.submit()" class="bg-transparent font-medium text-[var(--text)] focus:outline-none cursor-pointer text-xs">
+            <input type="date" id="date" name="date" value="{{ $dateInput }}" min="{{ \App\Models\AttendanceSetting::startDate()?->format('Y-m-d') }}" onchange="this.value && this.form.submit()" class="bg-transparent font-medium text-[var(--text)] focus:outline-none cursor-pointer text-xs">
         </div>
 
         <select name="device_id" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
@@ -78,6 +131,12 @@
             <table class="min-w-[700px] w-full text-left text-xs font-mono" data-datatable data-page-length="25" data-length-change="true" data-toolbar-filter="#raw-filter" data-empty-message="Tidak ada raw log yang tersimpan sesuai filter">
                 <thead class="bg-[var(--surface-secondary)] text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider border-b border-[var(--border-subtle)] font-sans">
                     <tr>
+                        @if($canBulkReview)
+                            <th scope="col" class="px-4 py-2.5 w-10">
+                                <input type="checkbox" @change="toggleAll($event)" aria-label="Pilih semua scan pada halaman ini"
+                                    class="size-3.5 rounded border-[var(--border)] text-[var(--primary-accessible)] focus:ring-[var(--primary-accessible)] cursor-pointer">
+                            </th>
+                        @endif
                         <th scope="col" class="px-4 py-2.5">Waktu Scan Mesin</th>
                         <th scope="col" class="px-4 py-2.5">Waktu Terima Server</th>
                         <th scope="col" class="px-4 py-2.5">Perangkat</th>
@@ -91,6 +150,13 @@
                 <tbody class="divide-y divide-[var(--border-subtle)] text-[13px]">
                     @foreach($logs as $log)
                     <tr class="hover:bg-[var(--surface-secondary)]/50 transition-colors">
+                        @if($canBulkReview)
+                            <td class="px-4 py-2.5">
+                                <input type="checkbox" value="{{ $log->id }}" x-model="selected"
+                                    class="time-review-checkbox size-3.5 rounded border-[var(--border)] text-[var(--primary-accessible)] focus:ring-[var(--primary-accessible)] cursor-pointer"
+                                    aria-label="Pilih scan #{{ $log->id }}">
+                            </td>
+                        @endif
                         <td class="px-4 py-2.5 font-bold text-[var(--text)]">{{ $log->occurred_at->format('Y-m-d H:i:s') }}</td>
                         <td class="px-4 py-2.5 text-[var(--text-secondary)]">{{ $log->received_at->format('Y-m-d H:i:s') }}</td>
                         <td class="px-4 py-2.5 font-sans font-medium text-[var(--text)]">{{ $log->device->name ?? 'Fingerprint' }}</td>

@@ -78,7 +78,7 @@ class FiveDaySchoolWeekTest extends TestCase
             'day_pattern' => 'sabtu',
         ]);
 
-        $response->assertRedirect(route('schedules.index'));
+        $response->assertRedirect(route('schedules.index', ['tab' => 'schedules']));
         $this->assertFalse($saturday->fresh()->is_active);
 
         // 2. Aktifkan kembali

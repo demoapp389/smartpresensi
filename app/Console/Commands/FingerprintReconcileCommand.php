@@ -133,10 +133,7 @@ class FingerprintReconcileCommand extends Command
             return self::SPARSE_INTERVAL_MINUTES;
         }
 
-        $schedule = SchoolSchedule::query()
-            ->where('day_of_week', $now->dayOfWeekIso)
-            ->where('is_active', true)
-            ->first();
+        $schedule = SchoolSchedule::forDate($now);
 
         if ($schedule === null) {
             // Jika ada hari lain yang aktif tapi hari ini tidak memiliki jadwal aktif,

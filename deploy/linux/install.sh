@@ -555,6 +555,70 @@ EOF
     CONNECTOR_UNIT=/etc/systemd/system/solutionx601-connector.service
     render_template "$TEMPLATE_DIR/systemd/solutionx601-connector.service" "$CONNECTOR_UNIT"
     systemctl daemon-reload
+
+    # Helper restart terbatas: hanya unit SmartPresensi yang boleh di-restart
+    # oleh pengguna web melalui sudoers NOPASSWD.
+    SYSTEMCTL_BIN=$(command -v systemctl || true)
+    [ -n "$SYSTEMCTL_BIN" ] || SYSTEMCTL_BIN=/bin/systemctl
+    cat > /usr/local/sbin/smartpresensi-service <<'HELPER_EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+action="${1:-}"
+target="${2:-}"
+
+if [ "$action" != "restart" ]; then
+    echo "Aksi tidak dikenal: $action" >&2
+    exit 2
+fi
+
+case "$target" in
+    worker) units=(smartpresensi-worker) ;;
+    connector) units=(solutionx601-connector) ;;
+    scheduler) units=(smartpresensi-scheduler) ;;
+    all) units=(smartpresensi-worker solutionx601-connector smartpresensi-scheduler) ;;
+    *)
+        echo "Target tidak dikenal: $target" >&2
+        exit 2
+        ;;
+esac
+
+exec @SYSTEMCTL@ restart "${units[@]}"
+HELPER_EOF
+    sed -i "s#@SYSTEMCTL@#${SYSTEMCTL_BIN}#g" /usr/local/sbin/smartpresensi-service
+    chown root:root /usr/local/sbin/smartpresensi-service
+    chmod 0750 /usr/local/sbin/smartpresensi-service
+    ok "Helper restart /usr/local/sbin/smartpresensi-service terpasang."
+
+    SUDOERS_FILE=/etc/sudoers.d/smartpresensi-control
+    cat > "$SUDOERS_FILE" <<EOF
+# Izinkan pengguna web me-restart unit SmartPresensi melalui helper tervalidasi.
+%${APP_GROUP} ALL=(root) NOPASSWD: /usr/local/sbin/smartpresensi-service
+EOF
+    chmod 0440 "$SUDOERS_FILE"
+    if have visudo && visudo -cf "$SUDOERS_FILE" >/dev/null 2>&1; then
+        ok "Sudoers terbatas untuk restart layanan terpasang."
+    else
+        rm -f "$SUDOERS_FILE"
+        warn "Sudoers tidak dapat divalidasi; tombol restart Linux akan menampilkan perintah manual."
+    fi
+
+    cat > /etc/logrotate.d/smartpresensi <<EOF
+${APP_DIR}/storage/logs/connector_service.log
+${APP_DIR}/storage/logs/queue_worker_service.log
+${APP_DIR}/storage/logs/scheduler.log {
+    weekly
+    rotate 4
+    missingok
+    notifempty
+    copytruncate
+    compress
+    delaycompress
+}
+EOF
+    chmod 0644 /etc/logrotate.d/smartpresensi
+    ok "Rotasi log layanan terpasang di /etc/logrotate.d/smartpresensi."
+
     systemctl enable --now smartpresensi-worker
     ok "Queue worker aktif."
 

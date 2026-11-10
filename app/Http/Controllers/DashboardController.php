@@ -12,6 +12,7 @@ use App\Models\SchoolHoliday;
 use App\Models\SchoolSchedule;
 use App\Models\Student;
 use App\Services\AttendanceAlpaService;
+use App\Services\AttendancePeriodService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -19,7 +20,8 @@ use Illuminate\View\View;
 class DashboardController extends Controller
 {
     public function __construct(
-        protected AttendanceAlpaService $alpaService
+        protected AttendanceAlpaService $alpaService,
+        protected AttendancePeriodService $periodService,
     ) {}
 
     /**
@@ -29,6 +31,8 @@ class DashboardController extends Controller
     {
         $selectedDate = $request->input('date', Carbon::today('Asia/Jakarta')->toDateString());
         $selectedClassId = $request->input('class_id');
+        $attendanceStartDate = $this->periodService->startDate();
+        $isBeforeStart = $this->periodService->isBeforeStart($selectedDate);
 
         if ($request->user()?->isHomeroomTeacher()) {
             $selectedClassId = $request->user()->class_id;
@@ -44,6 +48,10 @@ class DashboardController extends Controller
         // Query dasar attendances untuk tanggal terpilih (dipakai statistik agregat & pratinjau).
         $attendanceBaseQuery = Attendance::query()->whereDate('school_date', $selectedDate);
 
+        if ($isBeforeStart) {
+            $attendanceBaseQuery->whereRaw('1 = 0');
+        }
+
         if ($selectedClassId) {
             $attendanceBaseQuery->whereHas('student', function ($q) use ($selectedClassId) {
                 $q->where('class_id', $selectedClassId);
@@ -53,7 +61,7 @@ class DashboardController extends Controller
         // Cek apakah tanggal terpilih merupakan hari libur atau di luar hari aktif sekolah
         $isSchoolDay = SchoolSchedule::isSchoolDay($selectedDate);
         $isHoliday = SchoolHoliday::isHoliday($selectedDate);
-        $isNonEffectiveDay = ! $isSchoolDay || $isHoliday;
+        $isNonEffectiveDay = $isBeforeStart || ! $isSchoolDay || $isHoliday;
 
         // Statistik Kehadiran Tanggal Terpilih (PERF-02: agregat, tanpa memuat seluruh baris).
         $statusCounts = (clone $attendanceBaseQuery)
@@ -105,15 +113,19 @@ class DashboardController extends Controller
         $mainDevice = $devices->first();
 
         // Raw Logs Terbaru (FR-18)
-        $recentLogs = AttendanceLog::with('device')
-            ->whereDate('occurred_at', $selectedDate)
+        $recentLogs = $this->periodService->applyTo(
+            AttendanceLog::with('device')->whereDate('occurred_at', $selectedDate),
+            'occurred_at'
+        )
             ->latest('occurred_at')
             ->limit(20)
             ->get();
 
         // Raw Logs Belum Terpetakan / Unmapped (FR-08: Log tidak dikenal masuk daftar perlu pencocokan)
-        $unmappedLogs = AttendanceLog::with('device')
-            ->where('status', 'unmapped')
+        $unmappedLogs = $this->periodService->applyTo(
+            AttendanceLog::with('device')->where('status', 'unmapped'),
+            'occurred_at'
+        )
             ->latest('occurred_at')
             ->limit(10)
             ->get();
@@ -156,9 +168,11 @@ class DashboardController extends Controller
         $endDate = Carbon::parse($selectedDate, 'Asia/Jakarta');
         $startDate = $endDate->copy()->subDays(6);
 
-        $trendQuery = Attendance::query()
-            ->whereDate('school_date', '>=', $startDate->toDateString())
-            ->whereDate('school_date', '<=', $endDate->toDateString());
+        $trendQuery = $this->periodService->applyTo(
+            Attendance::query()
+                ->whereDate('school_date', '>=', $startDate->toDateString())
+                ->whereDate('school_date', '<=', $endDate->toDateString())
+        );
 
         if ($selectedClassId) {
             $trendQuery->whereHas('student', function ($q) use ($selectedClassId) {
@@ -182,8 +196,9 @@ class DashboardController extends Controller
         while ($cursor->lte($endDate)) {
             $dStr = $cursor->toDateString();
             $trendLabels[] = $cursor->translatedFormat('D, d M');
+            $isBeforeStartDay = $this->periodService->isBeforeStart($cursor);
 
-            $dayRecords = $trendGrouped->get($dStr, collect());
+            $dayRecords = $isBeforeStartDay ? collect() : $trendGrouped->get($dStr, collect());
             $hCount = $dayRecords->where('status', 'hadir')->count();
             $tCount = $dayRecords->where('status', 'terlambat')->count();
             $pcCount = $dayRecords->filter(
@@ -192,7 +207,7 @@ class DashboardController extends Controller
             )->count();
             $isCount = $dayRecords->whereIn('status', ['izin', 'sakit'])->count();
             $recordedCount = $dayRecords->count();
-            $trendVirtualAlpa = isset($alpaDateKeys[$dStr])
+            $trendVirtualAlpa = ! $isBeforeStartDay && isset($alpaDateKeys[$dStr])
                 ? max(0, $totalStudents - $recordedCount)
                 : 0;
             $trendAlpaCount = $dayRecords->where('status', 'alpa')->count() + $trendVirtualAlpa;
@@ -259,7 +274,9 @@ class DashboardController extends Controller
             'attendanceRate',
             'isSchoolDay',
             'isHoliday',
-            'isNonEffectiveDay'
+            'isNonEffectiveDay',
+            'attendanceStartDate',
+            'isBeforeStart'
         ));
     }
 }

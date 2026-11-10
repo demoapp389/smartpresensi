@@ -7,6 +7,7 @@ use App\Models\Attendance;
 use App\Models\SchoolClass;
 use App\Models\Student;
 use App\Services\AttendanceCorrectionService;
+use App\Services\AttendancePeriodService;
 use App\Services\AttendanceReportService;
 use App\Services\SimpleXlsxExporter;
 use App\Services\WhatsAppNotificationService;
@@ -26,6 +27,7 @@ class AttendanceRecordController extends Controller
     public function __construct(
         protected AttendanceReportService $reportService,
         protected AttendanceCorrectionService $correctionService,
+        protected AttendancePeriodService $periodService,
         protected WhatsAppNotificationService $whatsAppNotificationService,
     ) {}
 
@@ -40,6 +42,14 @@ class AttendanceRecordController extends Controller
         $outStatus = $request->input('out_status');
         $month = $request->input('month', Carbon::parse($dateFrom)->format('Y-m'));
 
+        $attendanceStartDate = $this->periodService->startDate();
+        $beforeStart = $attendanceStartDate !== null
+            && $dateTo < $attendanceStartDate->toDateString();
+
+        if (! $beforeStart && $attendanceStartDate !== null && $dateFrom < $attendanceStartDate->toDateString()) {
+            $dateFrom = $attendanceStartDate->toDateString();
+        }
+
         // Jika Wali Kelas, batasi hanya untuk kelas yang diampunya
         if (Auth::user()?->isHomeroomTeacher()) {
             $classId = Auth::user()->class_id;
@@ -53,7 +63,9 @@ class AttendanceRecordController extends Controller
             'notifications',
         ])->latest('updated_at');
 
-        if ($dateFrom === $dateTo) {
+        if ($beforeStart) {
+            $query->whereRaw('1 = 0');
+        } elseif ($dateFrom === $dateTo) {
             $query->whereDate('school_date', $dateFrom);
         } else {
             $query->whereBetween('school_date', [$dateFrom, $dateTo]);
@@ -100,7 +112,7 @@ class AttendanceRecordController extends Controller
             ->orderBy('name')
             ->get();
 
-        return view('attendances.index', compact('attendances', 'classes', 'students', 'dateFrom', 'dateTo', 'selectedDate', 'classId', 'studentId', 'status', 'outStatus', 'month'));
+        return view('attendances.index', compact('attendances', 'classes', 'students', 'dateFrom', 'dateTo', 'selectedDate', 'classId', 'studentId', 'status', 'outStatus', 'month', 'attendanceStartDate', 'beforeStart'));
     }
 
     public function correctionIndex(Request $request): View
@@ -108,6 +120,8 @@ class AttendanceRecordController extends Controller
         $user = Auth::user();
         $selectedDate = $request->input('date', Carbon::today('Asia/Jakarta')->toDateString());
         $classId = $request->input('class_id');
+        $attendanceStartDate = $this->periodService->startDate();
+        $isBeforeStart = $this->periodService->isBeforeStart($selectedDate);
 
         // Jika Wali Kelas, batasi hanya untuk kelas yang diampunya
         if ($user?->isHomeroomTeacher()) {
@@ -120,6 +134,10 @@ class AttendanceRecordController extends Controller
         ])
             ->whereDate('school_date', $selectedDate)
             ->orderBy('student_id');
+
+        if ($isBeforeStart) {
+            $query->whereRaw('1 = 0');
+        }
 
         if ($classId) {
             $query->whereHas('student', function ($q) use ($classId) {
@@ -139,6 +157,25 @@ class AttendanceRecordController extends Controller
             ->when($classId, fn ($q) => $q->where('class_id', $classId))
             ->orderBy('name')
             ->get();
+
+        // Siswa yang sudah punya bukti scan pada tanggal ini tidak boleh muncul
+        // pada input manual agar kehadirannya tidak tertimpa tanpa sengaja.
+        $scannedStudentIds = $isBeforeStart ? [] : Attendance::query()
+            ->whereDate('school_date', $selectedDate)
+            ->where(function ($q) {
+                $q->whereNotNull('check_in_at')
+                    ->orWhereNotNull('check_out_at');
+            })
+            ->pluck('student_id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+
+        $manualEligibleStudents = $isBeforeStart
+            ? collect()
+            : $students
+                ->reject(fn (Student $student): bool => in_array((int) $student->id, $scannedStudentIds, true))
+                ->values();
+        $manualHiddenCount = $isBeforeStart ? 0 : $students->count() - $manualEligibleStudents->count();
 
         $allowedStatusesByAttendance = [];
         $actionableAttendanceIds = [];
@@ -180,6 +217,10 @@ class AttendanceRecordController extends Controller
             'canBulkCorrect',
             'manualStatuses',
             'statusOptions',
+            'manualEligibleStudents',
+            'manualHiddenCount',
+            'attendanceStartDate',
+            'isBeforeStart',
         ));
     }
 
@@ -357,6 +398,7 @@ class AttendanceRecordController extends Controller
 
         $user = Auth::user();
         $targetStudent = Student::findOrFail($validated['student_id']);
+        $this->periodService->assertNotBeforeStart($validated['school_date']);
 
         DB::transaction(function () use ($validated, $user, $targetStudent): void {
             $attendance = Attendance::where('student_id', $validated['student_id'])
@@ -372,6 +414,7 @@ class AttendanceRecordController extends Controller
                 $attendance,
                 $validated['status'],
                 $validated['override_reason'],
+                $validated['school_date'],
             );
 
             if ($attendance) {
@@ -429,20 +472,38 @@ class AttendanceRecordController extends Controller
 
         $query = Attendance::with(['student.schoolClass', 'operator'])
             ->orderBy('student_id');
+        $attendanceStartDate = $this->periodService->startDate();
 
         if ($request->filled('month')) {
             $month = $request->input('month');
             $startDate = Carbon::parse($month.'-01', 'Asia/Jakarta')->startOfMonth();
             $endDate = $startDate->copy()->endOfMonth();
-            $query->whereBetween('school_date', [$startDate->toDateString(), $endDate->toDateString()]);
             $periodLabel = $month;
-        } else {
-            if ($dateFrom === $dateTo) {
-                $query->whereDate('school_date', $dateFrom);
+
+            if ($attendanceStartDate !== null && $endDate->lt($attendanceStartDate)) {
+                $query->whereRaw('1 = 0');
             } else {
-                $query->whereBetween('school_date', [$dateFrom, $dateTo]);
+                if ($attendanceStartDate !== null && $startDate->lt($attendanceStartDate)) {
+                    $startDate = $attendanceStartDate->copy();
+                }
+                $query->whereBetween('school_date', [$startDate->toDateString(), $endDate->toDateString()]);
             }
+        } else {
             $periodLabel = $dateFrom === $dateTo ? $dateFrom : "{$dateFrom}_sd_{$dateTo}";
+
+            if ($attendanceStartDate !== null && $dateTo < $attendanceStartDate->toDateString()) {
+                $query->whereRaw('1 = 0');
+            } else {
+                if ($attendanceStartDate !== null && $dateFrom < $attendanceStartDate->toDateString()) {
+                    $dateFrom = $attendanceStartDate->toDateString();
+                }
+
+                if ($dateFrom === $dateTo) {
+                    $query->whereDate('school_date', $dateFrom);
+                } else {
+                    $query->whereBetween('school_date', [$dateFrom, $dateTo]);
+                }
+            }
         }
 
         if ($classId) {

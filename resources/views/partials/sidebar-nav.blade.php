@@ -23,8 +23,12 @@
     // Wali kelas tidak mengakses modul operasional (log mentah, mesin, dsb).
     $canOperate = ! $isWali;
 
+    $attendanceStartDate = \App\Models\AttendanceSetting::startDate();
+
     $unmappedCount = $canOperate
-        ? \App\Models\AttendanceLog::where('status', 'unmapped')->count()
+        ? \App\Models\AttendanceLog::where('status', 'unmapped')
+            ->when($attendanceStartDate, fn ($query) => $query->whereDate('occurred_at', '>=', $attendanceStartDate->toDateString()))
+            ->count()
         : 0;
 
     $link = fn (string $route, string $label, string $icon, array|string|null $active = null, ?int $badge = null, string $badgeTone = 'warning') => [

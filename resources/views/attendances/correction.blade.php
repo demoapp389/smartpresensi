@@ -46,13 +46,19 @@
         return ({ hadir: 'Hadir', terlambat: 'Terlambat', izin: 'Izin', sakit: 'Sakit', alpa: 'Alpa', perlu_tinjauan: 'Perlu Tinjauan' })[status] ?? status;
     }
 }" @open-manual-modal.window="manualModal = true">
+    @if($isBeforeStart)
+        <div class="rounded-[var(--radius)] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900">
+            Tanggal yang dipilih berada sebelum tanggal mulai sistem absensi ({{ $attendanceStartDate?->format('d/m/Y') }}). Koreksi dan presensi manual tidak tersedia untuk tanggal tersebut.
+        </div>
+    @endif
+
     {{-- Filter dipindah ke toolbar DataTables oleh tables.js: dropdown jumlah
          baris + filter di kiri, kotak pencarian bawaan DataTables di kanan.
          Tetap form GET biasa bila JS mati. --}}
     <form id="correction-filter" method="GET" action="{{ route('attendances.correction') }}" class="flex flex-wrap items-center gap-2 text-xs">
         <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5">
             <label for="date" class="text-[var(--text-secondary)] font-medium whitespace-nowrap">Tanggal:</label>
-            <input type="date" id="date" name="date" value="{{ $selectedDate }}" onchange="this.value && this.form.submit()" class="bg-transparent font-medium text-[var(--text)] focus:outline-none cursor-pointer text-xs">
+            <input type="date" id="date" name="date" value="{{ $selectedDate }}" min="{{ $attendanceStartDate?->format('Y-m-d') }}" onchange="this.value && this.form.submit()" class="bg-transparent font-medium text-[var(--text)] focus:outline-none cursor-pointer text-xs">
         </div>
 
         @if($isFiltered)
@@ -407,22 +413,39 @@
                 {{ $isWali ? 'Catat izin atau sakit untuk siswa di kelas yang Anda ampu.' : 'Catat presensi manual dengan alasan yang tercatat pada audit log.' }}
             </p>
 
-            <form action="{{ route('attendances.manual') }}" method="POST" class="space-y-3 text-xs">
+            <form action="{{ route('attendances.manual') }}" method="POST" class="space-y-3 text-xs"
+                @submit.prevent="askConfirm({
+                    title: 'Simpan Presensi Manual',
+                    message: 'Simpan status ' + $el.status.options[$el.status.selectedIndex].text + ' untuk siswa terpilih pada tanggal ' + $el.school_date.value + '?',
+                    confirmLabel: 'Simpan',
+                    variant: 'primary'
+                }).then(ok => ok && $el.submit())">
                 @csrf
                 <div>
                     <label class="block font-semibold text-[var(--text)] mb-1">Pilih Siswa</label>
-                    <select name="student_id" required class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)]">
+                    <select name="student_id" required @disabled($manualEligibleStudents->isEmpty())
+                        class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)] disabled:cursor-not-allowed disabled:opacity-60">
                         <option value="">-- Pilih Siswa --</option>
-                        @foreach($students as $st)
+                        @foreach($manualEligibleStudents as $st)
                             <option value="{{ $st->id }}">{{ $st->name }} ({{ $st->schoolClass?->name ?? '-' }})</option>
                         @endforeach
                     </select>
+
+                    @if($manualEligibleStudents->isEmpty())
+                        <p class="mt-1.5 rounded-[var(--radius-sm)] border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-[10px] text-emerald-800">
+                            Semua siswa pada filter ini sudah memiliki bukti scan. Input manual tidak diperlukan.
+                        </p>
+                    @elseif($manualHiddenCount > 0)
+                        <p class="mt-1.5 rounded-[var(--radius-sm)] border border-orange-200 bg-orange-50 px-2.5 py-2 text-[10px] text-orange-800">
+                            {{ $manualHiddenCount }} siswa disembunyikan karena sudah memiliki scan masuk/pulang pada tanggal ini.
+                        </p>
+                    @endif
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block font-semibold text-[var(--text)] mb-1">Tanggal</label>
-                        <input type="date" name="school_date" value="{{ $selectedDate }}" required
+                        <input type="date" name="school_date" value="{{ $selectedDate }}" min="{{ $attendanceStartDate?->format('Y-m-d') }}" required
                             class="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-accessible)]">
                     </div>
                     <div>

@@ -167,7 +167,7 @@ class AttendanceCorrectionWorkflowTest extends TestCase
         $this->assertFalse($attendance->is_manual_override);
     }
 
-    public function test_admin_can_correct_complete_scan_to_absence_without_losing_scan(): void
+    public function test_admin_cannot_correct_complete_scan_to_absence(): void
     {
         $attendance = $this->createAttendance([
             'status' => 'terlambat',
@@ -182,26 +182,19 @@ class AttendanceCorrectionWorkflowTest extends TestCase
         $this->actingAs($this->admin)->post(route('attendances.correct', $attendance), [
             'status' => 'sakit',
             'override_reason' => 'Surat dokter menyusul, siswa sakit saat di sekolah.',
-        ])->assertSessionHas('success');
+        ])->assertSessionHasErrors('status');
 
         $attendance->refresh();
 
-        $this->assertSame('sakit', $attendance->status);
+        $this->assertSame('terlambat', $attendance->status);
         $this->assertSame('2026-10-14 07:16:00', $attendance->check_in_at->format('Y-m-d H:i:s'));
         $this->assertSame('2026-10-14 15:05:00', $attendance->check_out_at->format('Y-m-d H:i:s'));
         $this->assertSame('terlambat', $attendance->check_in_status);
         $this->assertSame('pulang_cepat', $attendance->check_out_status);
         $this->assertSame(16, $attendance->late_minutes);
         $this->assertSame(55, $attendance->early_leave_minutes);
-        $this->assertTrue($attendance->is_manual_override);
-        $this->assertSame('v1.2-scan-correction', $attendance->policy_version);
+        $this->assertFalse($attendance->is_manual_override);
         $this->assertSame('Scan Lengkap', $attendance->scan_completeness_label);
-        $this->assertSame('Sakit', $attendance->status_display_label);
-
-        $this->assertDatabaseHas('audit_logs', [
-            'action' => 'manual_override_attendance',
-            'entity_id' => $attendance->id,
-        ]);
     }
 
     public function test_operator_cannot_correct_complete_scan(): void
@@ -345,7 +338,7 @@ class AttendanceCorrectionWorkflowTest extends TestCase
         $response->assertSee('adminScanModal = true', false);
     }
 
-    public function test_correction_page_allows_admin_to_correct_complete_scan(): void
+    public function test_correction_page_hides_correction_for_complete_scan(): void
     {
         $this->createAttendance([
             'status' => 'hadir',
@@ -361,7 +354,7 @@ class AttendanceCorrectionWorkflowTest extends TestCase
 
         $response->assertOk();
         $response->assertSee($this->student->name);
-        $response->assertSee('correctModal = true', false);
+        $response->assertDontSee('correctModal = true', false);
     }
 
     public function test_correction_page_hides_complete_scan_action_from_operator(): void
@@ -477,6 +470,24 @@ class AttendanceCorrectionWorkflowTest extends TestCase
         $this->assertSame('2026-10-14 15:05:00', $attendance->check_out_at->format('Y-m-d H:i:s'));
         $this->assertSame('perlu_verifikasi', $attendance->check_out_status);
         $this->assertFalse($attendance->is_manual_override);
+    }
+
+    public function test_manual_picker_hides_students_with_scan_evidence(): void
+    {
+        $this->createAttendance([
+            'status' => 'hadir',
+            'check_in_at' => '2026-10-14 07:05:00',
+            'check_in_status' => 'tepat_waktu',
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('attendances.correction', [
+            'date' => '2026-10-14',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('1 siswa disembunyikan');
+        $response->assertSee('value="'.$this->otherStudent->id.'"', false);
+        $response->assertDontSee('value="'.$this->student->id.'">'.$this->student->name, false);
     }
 
     public function test_manual_input_rejects_hadir_status(): void

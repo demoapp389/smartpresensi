@@ -53,6 +53,12 @@
         </div>
     </div>
 
+    @if($isBeforeStart)
+        <div class="rounded-[var(--radius)] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900">
+            Tanggal yang dipilih berada sebelum tanggal mulai sistem absensi ({{ $attendanceStartDate?->format('d/m/Y') }}). Laporan tidak menampilkan data pada periode tersebut.
+        </div>
+    @endif
+
     {{-- Filter compact; dipindah ke toolbar DataTables oleh tables.js
          (dropdown jumlah baris + filter di kiri, kotak pencarian di kanan).
          Tetap form GET biasa bila JS mati. --}}
@@ -64,7 +70,7 @@
         @if($type === 'daily')
             <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5">
                 <span class="text-[var(--text-secondary)] font-medium whitespace-nowrap">Tanggal:</span>
-                <input type="date" name="date" value="{{ $date }}" required
+                <input type="date" name="date" value="{{ $date }}" min="{{ $attendanceStartDate?->format('Y-m-d') }}" required
                        onchange="this.value && this.form.submit()"
                        class="bg-transparent font-medium text-[var(--text)] focus:outline-none cursor-pointer text-xs">
             </div>

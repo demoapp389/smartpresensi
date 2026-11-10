@@ -5,9 +5,11 @@ namespace App\Console\Commands;
 use App\Models\Attendance;
 use App\Models\AttendanceLog;
 use App\Models\AuditLog;
+use App\Models\SchedulePeriod;
 use App\Models\SchoolHoliday;
 use App\Models\SchoolSchedule;
 use App\Models\Student;
+use App\Services\AttendancePeriodService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Database\QueryException;
@@ -24,7 +26,7 @@ class SyncPendingAttendanceCommand extends Command
 
     protected $description = 'Materialisasi presensi perlu tinjauan dan finalisasi Alpa H+1 untuk presensi tanpa scan';
 
-    public function handle(): int
+    public function handle(AttendancePeriodService $periodService): int
     {
         $timezone = config('app.timezone', 'Asia/Jakarta');
         $today = now($timezone)->startOfDay();
@@ -33,11 +35,11 @@ class SyncPendingAttendanceCommand extends Command
 
         if (is_string($dateOption) && $dateOption !== '') {
             $targetDate = Carbon::parse($dateOption, $timezone)->startOfDay();
-            $materialized = $this->materializePending($targetDate, true, $dryRun);
+            $materialized = $this->materializePending($targetDate, true, $dryRun, $periodService);
             $finalized = 0;
         } else {
-            $materialized = $this->materializePending($today, false, $dryRun);
-            $finalized = $this->finalizeExpiredPending($today, $dryRun);
+            $materialized = $this->materializePending($today, false, $dryRun, $periodService);
+            $finalized = $this->finalizeExpiredPending($today, $dryRun, $periodService);
         }
 
         $this->newLine();
@@ -59,8 +61,12 @@ class SyncPendingAttendanceCommand extends Command
         return self::SUCCESS;
     }
 
-    private function materializePending(Carbon $date, bool $force, bool $dryRun): int
+    private function materializePending(Carbon $date, bool $force, bool $dryRun, AttendancePeriodService $periodService): int
     {
+        if ($periodService->isBeforeStart($date)) {
+            return 0;
+        }
+
         $schedule = $this->scheduleFor($date);
 
         if ($schedule === null || $this->isHoliday($date)) {
@@ -118,13 +124,13 @@ class SyncPendingAttendanceCommand extends Command
         }
     }
 
-    private function finalizeExpiredPending(Carbon $today, bool $dryRun): int
+    private function finalizeExpiredPending(Carbon $today, bool $dryRun, AttendancePeriodService $periodService): int
     {
         $timezone = config('app.timezone', 'Asia/Jakarta');
-        $schedules = SchoolSchedule::query()
-            ->where('is_active', true)
-            ->get()
-            ->keyBy(fn (SchoolSchedule $schedule): int => (int) $schedule->day_of_week);
+        /** @var Collection<int, SchoolSchedule> $schedules */
+        $schedules = SchoolSchedule::query()->get();
+        /** @var Collection<int, SchedulePeriod> $periods */
+        $periods = SchedulePeriod::query()->where('is_active', true)->get();
         $holidays = SchoolHoliday::active()
             ->get(['start_date', 'end_date'])
             ->map(fn (object $holiday): array => [
@@ -134,24 +140,24 @@ class SyncPendingAttendanceCommand extends Command
 
         $finalized = 0;
 
-        Attendance::query()
+        $periodService->applyTo(Attendance::query(), 'school_date')
             ->where('status', 'perlu_tinjauan')
             ->whereNull('check_in_at')
             ->whereNull('check_out_at')
             ->where('is_manual_override', false)
             ->whereDate('school_date', '<', $today->toDateString())
             ->orderBy('id')
-            ->chunkById(200, function (Collection $attendances) use ($today, $dryRun, $schedules, $holidays, $timezone, &$finalized): void {
+            ->chunkById(200, function (Collection $attendances) use ($today, $dryRun, $schedules, $periods, $holidays, $timezone, &$finalized): void {
                 foreach ($attendances as $attendance) {
                     if ($dryRun) {
-                        if ($this->isReadyForAutoAlpa($attendance, $schedules, $holidays, $timezone)) {
+                        if ($this->isReadyForAutoAlpa($attendance, $schedules, $periods, $holidays, $timezone)) {
                             $finalized++;
                         }
 
                         continue;
                     }
 
-                    $finalized += DB::transaction(function () use ($attendance, $today, $schedules, $holidays, $timezone): int {
+                    $finalized += DB::transaction(function () use ($attendance, $today, $schedules, $periods, $holidays, $timezone): int {
                         $locked = Attendance::query()
                             ->whereKey($attendance->id)
                             ->where('status', 'perlu_tinjauan')
@@ -162,7 +168,7 @@ class SyncPendingAttendanceCommand extends Command
                             ->lockForUpdate()
                             ->first();
 
-                        if (! $locked || ! $this->isReadyForAutoAlpa($locked, $schedules, $holidays, $timezone)) {
+                        if (! $locked || ! $this->isReadyForAutoAlpa($locked, $schedules, $periods, $holidays, $timezone)) {
                             return 0;
                         }
 
@@ -200,11 +206,13 @@ class SyncPendingAttendanceCommand extends Command
 
     /**
      * @param  Collection<int, SchoolSchedule>  $schedules
+     * @param  Collection<int, SchedulePeriod>  $periods
      * @param  Collection<int, array{0: Carbon, 1: Carbon}>  $holidays
      */
     private function isReadyForAutoAlpa(
         Attendance $attendance,
         Collection $schedules,
+        Collection $periods,
         Collection $holidays,
         string $timezone,
     ): bool {
@@ -213,7 +221,9 @@ class SyncPendingAttendanceCommand extends Command
             $timezone
         );
 
-        if (! $schedules->has($schoolDate->dayOfWeekIso)) {
+        $schedule = SchoolSchedule::resolveFrom($schoolDate, $schedules, $periods);
+
+        if ($schedule === null || ! $schedule->is_active) {
             return false;
         }
 
@@ -261,10 +271,7 @@ class SyncPendingAttendanceCommand extends Command
 
     private function scheduleFor(Carbon $date): ?SchoolSchedule
     {
-        return SchoolSchedule::query()
-            ->where('day_of_week', $date->dayOfWeekIso)
-            ->where('is_active', true)
-            ->first();
+        return SchoolSchedule::forDate($date);
     }
 
     private function isHoliday(Carbon $date): bool

@@ -9,6 +9,7 @@ use App\Models\DeviceUser;
 use App\Models\FingerprintDevice;
 use App\Models\Student;
 use App\Services\AttendanceLogProcessingService;
+use App\Services\AttendancePeriodService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,6 +19,10 @@ class AttendanceLogController extends Controller
 {
     use HasHybridFilters;
     use LogsAuditTrail;
+
+    public function __construct(
+        protected AttendancePeriodService $periodService
+    ) {}
 
     protected function getFilterConfig(): array
     {
@@ -43,6 +48,7 @@ class AttendanceLogController extends Controller
     public function rawIndex(Request $request): View
     {
         $query = AttendanceLog::with('device')->latest('occurred_at');
+        $query = $this->periodService->applyTo($query, 'occurred_at');
 
         // Filter tanggal tunggal: default hari ini (zona Asia/Jakarta).
         // Antrean tinjauan waktu harus menampilkan semua tanggal agar log historis
@@ -71,7 +77,8 @@ class AttendanceLogController extends Controller
         $status = $requestedStatus;
         $isFiltered = $rawDate !== null || $deviceId !== '' || $status !== '';
 
-        $timeReviewCount = AttendanceLog::query()
+        $timeReviewCount = $this->periodService
+            ->applyTo(AttendanceLog::query(), 'occurred_at')
             ->where('status', AttendanceLog::STATUS_NEEDS_REVIEW)
             ->count();
 
@@ -162,11 +169,81 @@ class AttendanceLogController extends Controller
         return back()->with('success', "Scan #{$log->id} ditolak dan tidak akan mengubah presensi.");
     }
 
+    public function bulkApproveTimeReview(
+        Request $request,
+        AttendanceLogProcessingService $processor,
+    ): RedirectResponse {
+        return $this->bulkReviewTime($request, $processor, true);
+    }
+
+    public function bulkRejectTimeReview(
+        Request $request,
+        AttendanceLogProcessingService $processor,
+    ): RedirectResponse {
+        return $this->bulkReviewTime($request, $processor, false);
+    }
+
+    private function bulkReviewTime(
+        Request $request,
+        AttendanceLogProcessingService $processor,
+        bool $approve,
+    ): RedirectResponse {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:200'],
+            'ids.*' => ['integer', 'distinct'],
+            'review_note' => ['required', 'string', 'max:500'],
+        ], [
+            'ids.required' => 'Pilih minimal satu scan untuk diproses.',
+            'ids.max' => 'Maksimal 200 scan dapat diproses sekaligus.',
+            'review_note.required' => 'Alasan persetujuan/penolakan wajib diisi.',
+            'review_note.max' => 'Alasan maksimal 500 karakter.',
+        ]);
+
+        $result = $processor->bulkReviewTime(
+            array_map('intval', $validated['ids']),
+            (int) Auth::id(),
+            $validated['review_note'],
+            $approve,
+        );
+
+        $this->logAudit(
+            $approve ? 'bulk_approve_attendance_log_time_review' : 'bulk_reject_attendance_log_time_review',
+            'AttendanceLog',
+            null,
+            null,
+            [
+                'requested_ids' => array_map('intval', $validated['ids']),
+                'result' => $result,
+                'review_note' => $validated['review_note'],
+            ],
+        );
+
+        $action = $approve ? 'disetujui' : 'ditolak';
+        $countKey = $approve ? 'approved' : 'rejected';
+        $summary = "{$result[$countKey]} scan {$action}.";
+        $parts = [];
+
+        if ($result['skipped'] > 0) {
+            $parts[] = "{$result['skipped']} dilewati karena status sudah berubah";
+        }
+
+        if ($result['failed'] > 0) {
+            $parts[] = "{$result['failed']} gagal diproses";
+        }
+
+        if ($parts !== []) {
+            $summary .= ' '.implode(', ', $parts).'.';
+        }
+
+        return back()->with('success', $summary);
+    }
+
     public function unmappedIndex(Request $request): View
     {
         $query = AttendanceLog::with('device')
             ->where('status', 'unmapped')
             ->latest('occurred_at');
+        $query = $this->periodService->applyTo($query, 'occurred_at');
 
         $query = $this->applyFilters($query, $request);
 

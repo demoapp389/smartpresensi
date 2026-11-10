@@ -15,13 +15,19 @@
 
 @section('content')
 <div class="space-y-4">
+    @if($beforeStart)
+        <div class="rounded-[var(--radius)] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900">
+            Tanggal yang dipilih berada sebelum tanggal mulai sistem absensi ({{ $attendanceStartDate?->format('d/m/Y') }}). Data presensi tidak ditampilkan.
+        </div>
+    @endif
+
     {{-- Filter dipindah ke toolbar DataTables oleh tables.js: dropdown jumlah
          baris + filter di kiri, kotak pencarian bawaan DataTables di kanan.
          Tetap form GET biasa bila JS mati. --}}
     <form id="attendance-filter" method="GET" action="{{ route('attendances.index') }}" class="flex flex-wrap items-center gap-2 text-xs">
         <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5">
             <label for="date" class="text-[var(--text-secondary)] font-medium whitespace-nowrap">Tanggal:</label>
-            <input type="date" id="date" name="date" value="{{ $selectedDate }}" onchange="this.value && this.form.submit()" class="bg-transparent font-medium text-[var(--text)] focus:outline-none cursor-pointer text-xs">
+            <input type="date" id="date" name="date" value="{{ $selectedDate }}" min="{{ $attendanceStartDate?->format('Y-m-d') }}" onchange="this.value && this.form.submit()" class="bg-transparent font-medium text-[var(--text)] focus:outline-none cursor-pointer text-xs">
         </div>
 
         @php

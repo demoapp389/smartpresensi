@@ -298,6 +298,74 @@ class AttendanceLogProcessingService
     }
 
     /**
+     * Setujui atau tolak banyak scan tinjauan waktu sekaligus.
+     *
+     * Setiap log diproses dalam transaksinya sendiri agar satu kegagalan tidak
+     * membatalkan baris lain. Status yang sudah berubah dihitung sebagai dilewati.
+     *
+     * @param  array<int, int>  $logIds
+     * @return array{approved: int, rejected: int, skipped: int, failed: int}
+     */
+    public function bulkReviewTime(array $logIds, int $adminId, string $note, bool $approve): array
+    {
+        $result = [
+            'approved' => 0,
+            'rejected' => 0,
+            'skipped' => 0,
+            'failed' => 0,
+        ];
+
+        $logs = AttendanceLog::query()
+            ->whereIn('id', $logIds)
+            ->get()
+            ->keyBy('id');
+
+        foreach (array_unique($logIds) as $logId) {
+            $log = $logs->get($logId);
+
+            if (! $log instanceof AttendanceLog || $log->status !== AttendanceLog::STATUS_NEEDS_REVIEW) {
+                $result['skipped']++;
+
+                continue;
+            }
+
+            try {
+                if ($approve) {
+                    $attendance = $this->approveTimeReview($log, $adminId, $note);
+
+                    if ($attendance !== null) {
+                        $result['approved']++;
+
+                        continue;
+                    }
+
+                    $log->refresh();
+                    if ($log->status === AttendanceLog::STATUS_NEEDS_REVIEW) {
+                        $result['skipped']++;
+                    } else {
+                        $result['failed']++;
+                    }
+
+                    continue;
+                }
+
+                if ($this->rejectTimeReview($log, $adminId, $note)) {
+                    $result['rejected']++;
+
+                    continue;
+                }
+
+                $result['skipped']++;
+            } catch (Throwable $exception) {
+                report($exception);
+                $result['failed']++;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function auditState(AttendanceLog $log): array

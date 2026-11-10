@@ -533,9 +533,11 @@ berjalan lintas platform karena hanya memakai koneksi HTTP dari PHP (tidak butuh
    Windows.
 8. **Cetak/PDF laporan** - halaman laporan adalah tampilan siap cetak yang di-print dari
    browser klien. Server tidak membutuhkan Chrome/wkhtmltopdf.
-9. **Pusat Kontrol Sistem** - panel akan menampilkan supervisor mati karena supervisor
-   Windows tidak ada. Gunakan `systemctl`/`journalctl`; status mesin tetap akurat karena
-   heartbeat memakai scheduler + koneksi LAN.
+9. **Pusat Kontrol Sistem** - panel mendeteksi platform secara otomatis. Di Linux status
+   dibaca dari unit systemd (`systemctl is-active` / `systemctl show`) dan scheduler cron,
+   sedangkan tombol restart memakai helper root terbatas `smartpresensi-service`. Bila
+   `systemctl` tidak dapat dijalankan oleh pengguna web, panel menampilkan **Tidak Tersedia**
+   beserta alasannya, bukan status palsu. Periksa dengan `systemctl`/`journalctl`.
 
 ---
 
@@ -627,9 +629,19 @@ sudo -u www-data php8.3 artisan up
 
 ## 10. Batasan Linux yang perlu diketahui
 
-- **Pusat Kontrol Sistem** akan mencoba supervisor Windows di `127.0.0.1:4372`. Karena tidak
-  ada supervisor di Linux, status keseluruhan bisa terlihat *degraded* atau *offline* dan
-  tombol restart tidak bekerja. Ini **normal**. Gunakan:
+- **Pusat Kontrol Sistem** memakai driver `linux` (systemd) secara otomatis. Status connector,
+  worker, dan scheduler dibaca dari unit systemd; scheduler yang dijalankan lewat cron dikenali
+  sebagai **Terjadwal (Cron)**. Tombol restart memakai helper root terbatas yang dipasang
+  `install.sh`:
+
+  ```bash
+  /usr/local/sbin/smartpresensi-service restart worker
+  /usr/local/sbin/smartpresensi-service restart connector
+  /usr/local/sbin/smartpresensi-service restart scheduler
+  ```
+
+  Helper ini hanya mengizinkan unit SmartPresensi dan diberikan ke grup web melalui
+  `/etc/sudoers.d/smartpresensi-control`. Restart manual tetap bisa dilakukan:
 
   ```bash
   sudo systemctl restart smartpresensi-worker
@@ -637,6 +649,11 @@ sudo -u www-data php8.3 artisan up
   sudo systemctl status smartpresensi-worker solutionx601-connector
   ```
 
+  Log panel dibaca dari `storage/logs/connector_service.log`,
+  `storage/logs/queue_worker_service.log`, dan `storage/logs/scheduler.log` (di-*append* oleh
+  unit systemd dan dirotasi oleh `/etc/logrotate.d/smartpresensi`). Bila `systemctl` tidak
+  tersedia bagi pengguna web, panel menampilkan **Tidak Tersedia** dengan alasan yang jelas.
+  Untuk memaksa driver tertentu, set `SYSTEM_CONTROL_DRIVER=windows` atau `linux` di `.env`.
 - **Status mesin** tetap berjalan karena heartbeat memakai scheduler dan koneksi LAN, bukan
   supervisor Windows.
 - **Backup lewat menu aplikasi** tetap berjalan karena dibuat oleh PHP.
@@ -674,7 +691,8 @@ sudo -u www-data php8.3 artisan up
 | Login gagal setelah migrasi | Buat admin dengan `sp:create-admin`. Jangan mengandalkan `db:seed`. |
 | Worker tidak memproses antrean | `sudo systemctl status smartpresensi-worker`; `journalctl -u smartpresensi-worker -n 100`; cek tabel `jobs`. |
 | Status mesin tidak update | Pastikan cron/systemd scheduler berjalan; jalankan `php artisan schedule:list` dan `fingerprint:health-check` manual. |
-| Pusat Kontrol menampilkan supervisor mati | Normal di Linux. Gunakan `systemctl` dan `journalctl`; panel supervisor memang Windows-only. |
+| Pusat Kontrol menampilkan "Tidak Tersedia" | `www-data` tidak dapat menjalankan `systemctl`, atau unit belum terpasang. Cek `sudo -u www-data systemctl is-active smartpresensi-worker` dan pastikan nama unit sesuai `.env`. |
+| Tombol restart Pusat Kontrol gagal | Pastikan `/usr/local/sbin/smartpresensi-service` ada dan `/etc/sudoers.d/smartpresensi-control` valid (`sudo visudo -c`). Panel menampilkan perintah `systemctl` manual sebagai cadangan. |
 | Connector gagal menulis state | Pastikan connector dan queue worker memakai pengguna yang sama, atau izin tulis `connector/state/` benar. |
 | Mesin tidak bisa dihubungi | Cek IP/port/comm key; coba `python3 zkconnector.py --test --ip=... --port=4370`; pastikan tidak ada firewall yang memblokir. |
 | Tombol Tes Koneksi error "Connector tidak dapat dijalankan" | `proc_open` dinonaktifkan di php.ini FPM, atau `python3` tidak ada di PATH layanan. Set `CONNECTOR_PYTHON_BIN=/usr/bin/python3`. |

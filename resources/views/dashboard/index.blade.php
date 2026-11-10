@@ -16,6 +16,12 @@
 
 @section('content')
 <div class="space-y-4">
+    @if($isBeforeStart)
+        <div class="rounded-[var(--radius)] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900">
+            Tanggal yang dipilih berada sebelum tanggal mulai sistem absensi ({{ $attendanceStartDate?->format('d/m/Y') }}). Statistik dan log tidak ditampilkan.
+        </div>
+    @endif
+
     <!-- Top Filter Bar -->
     <div class="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[var(--shadow)] flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
         <div class="flex flex-wrap items-center gap-2.5">
@@ -59,7 +65,7 @@
         <form method="GET" action="{{ route('dashboard') }}" class="flex flex-wrap items-center gap-2 w-full md:w-auto">
             <div class="flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 py-1">
                 <label for="date" class="text-[var(--text-secondary)] font-medium">Tanggal:</label>
-                <input type="date" id="date" name="date" value="{{ $selectedDate }}" onchange="this.value && this.form.submit()" class="bg-transparent font-medium text-[var(--text)] focus:outline-none cursor-pointer text-xs">
+                <input type="date" id="date" name="date" value="{{ $selectedDate }}" min="{{ $attendanceStartDate?->format('Y-m-d') }}" onchange="this.value && this.form.submit()" class="bg-transparent font-medium text-[var(--text)] focus:outline-none cursor-pointer text-xs">
             </div>
 
             @php

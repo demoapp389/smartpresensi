@@ -66,7 +66,16 @@
             'cat' => 'memulai',
             'title' => 'Bagaimana mengganti kata sandi dan memperbarui profil?',
             'keywords' => 'profil password kata sandi ganti akun avatar',
-            'body' => 'Klik avatar di kanan atas &rarr; <strong>Profil Saya</strong>. Ubah nama, email, atau kata sandi di sana. Peran akun bersifat hanya-baca dan hanya dapat diubah Administrator melalui Manajemen Pengguna. Gunakan kata sandi minimal 8 karakter.',
+            'body' => 'Klik avatar di kanan atas &rarr; <strong>Profil Saya</strong>. Ubah nama, email, atau kata sandi di sana. Peran akun bersifat hanya-baca dan hanya dapat diubah Administrator melalui Manajemen Pengguna. Gunakan kata sandi minimal 8 karakter. Ikon mata di kolom kata sandi menampilkan atau menyembunyikan isian agar tidak salah ketik.',
+        ],
+        [
+            'cat' => 'memulai',
+            'title' => 'Lupa kata sandi, bagaimana mengatasinya?',
+            'keywords' => 'lupa password reset tautan email masuk akun',
+            'body' => 'Pada halaman login klik <strong>Lupa kata sandi?</strong>, lalu masukkan email akun Anda. Sistem mengirim tautan pembuatan kata sandi baru ke email tersebut; buka tautan itu dan isi kata sandi baru beserta konfirmasinya.'
+                .'<ul><li>Tautan berlaku terbatas dan hanya dapat dipakai sekali. Jika kedaluwarsa, ulangi permintaan dari halaman login.</li>'
+                .'<li>Jika email tidak kunjung masuk, periksa folder spam atau hubungi Administrator untuk memastikan alamat email akun dan konfigurasi SMTP server benar.</li>'
+                .'<li>Administrator dapat mengubah kata sandi pengguna langsung dari <strong>Manajemen Pengguna</strong> sebagai jalur cadangan.</li></ul>',
         ],
 
         // ───────────── PRESENSI ─────────────
@@ -92,12 +101,33 @@
         ],
         [
             'cat' => 'presensi',
+            'title' => 'Apa itu “Perlu Tinjauan Waktu” pada Riwayat Scan?',
+            'keywords' => 'tinjauan waktu selisih jam scan mesin server setujui tolak massal',
+            'body' => 'Beberapa scan ditandai <strong>Perlu Tinjauan Waktu</strong> karena jam mesin menyimpang terlalu jauh dari waktu diterima server (mis. mesin baru dinyalakan ulang atau jamnya belum disinkronkan). Status ini <strong>berbeda</strong> dari status absensi <em>Perlu Tinjauan</em> yang berarti bukti scan belum lengkap.'
+                .'<ul><li>Buka <strong>Riwayat Scan</strong>, saring status <em>Perlu Tinjauan Waktu</em>, lalu periksa selisih jamnya.</li>'
+                .'<li>Gunakan <strong>Setujui</strong> bila jam scan masih dapat diterima, atau <strong>Tolak</strong> bila data dianggap tidak valid. Keputusan tercatat di Log Audit.</li>'
+                .'<li>Centang beberapa baris untuk <strong>Setujui Massal</strong> / <strong>Tolak Massal</strong> agar penanganan lebih cepat.</li>'
+                .'<li>Setelah selesai, jalankan <strong>Sinkronisasi Waktu</strong> pada mesin agar kejadian serupa tidak berulang.</li></ul>',
+        ],
+        [
+            'cat' => 'presensi',
             'title' => 'Bagaimana mengoreksi presensi siswa yang lupa scan atau izin?',
             'keywords' => 'koreksi manual izin sakit alpa ubah kehadiran operator presensi manual',
             'body' => 'Gunakan <strong>Koreksi Operator</strong> (operator) atau <strong>Presensi Manual</strong> (wali kelas) pada tanggal terkait. Setiap koreksi <strong>wajib disertai alasan</strong> dan tercatat permanen di <strong>Log Audit</strong> beserta nama operator. Raw log tetap tidak berubah.'
                 .'<ul><li><strong>Presensi Manual</strong> dipakai untuk input izin/sakit/hadir/alpa, termasuk saat mesin maintenance; jam masuk/pulang opsional.</li>'
                 .'<li><strong>Koreksi</strong> mengubah status satu presensi yang sudah ada.</li>'
                 .'<li>Baris presensi normal (hadir tepat waktu masuk dan pulang) tidak menampilkan tombol aksi; baris yang perlu ditinjau atau sudah diverifikasi tetap menampilkan tombol sesuai statusnya.</li></ul>',
+        ],
+        [
+            'cat' => 'presensi',
+            'title' => 'Mengapa status presensi tidak bisa diubah padahal ada tombol koreksi?',
+            'keywords' => 'bukti scan lengkap masuk pulang terkunci tidak bisa koreksi manual scan',
+            'body' => 'Sistem mengutamakan bukti scan mesin. Aturan yang berlaku:'
+                .'<ul><li>Presensi dengan <strong>scan masuk dan pulang lengkap</strong> dikunci &mdash; status mengikuti data mesin dan tidak dapat ditimpa manual oleh peran apa pun.</li>'
+                .'<li>Presensi yang <strong>sudah memiliki bukti scan</strong> (salah satu atau keduanya) tidak dapat diisi status izin/sakit/alpa melalui Presensi Manual, agar catatan tidak bertentangan dengan bukti.</li>'
+                .'<li>Scan pulang tanpa scan masuk hanya dapat dikoreksi oleh Operator, dan Administrator masih dapat memakai pengecualian scan khusus untuk kasus yang sah.</li>'
+                .'<li>Baris tanpa bukti scan tetap dapat dikoreksi Wali Kelas (kelasnya) atau Operator sesuai kewenangan, selalu dengan alasan.</li></ul>'
+                .'Bila tombol aksi tidak muncul, berarti baris tersebut memang tidak memenuhi syarat koreksi.',
         ],
         [
             'cat' => 'presensi',
@@ -167,11 +197,13 @@
         ],
         [
             'cat' => 'master',
-            'title' => 'Bagaimana mengatur jadwal absensi dan hari libur?',
-            'keywords' => 'jadwal jam masuk pulang terlambat libur kalender toleransi',
-            'body' => 'Buka <strong>Jadwal Absensi</strong>.'
+            'title' => 'Bagaimana mengatur jadwal absensi, jadwal khusus, dan hari libur?',
+            'keywords' => 'jadwal jam masuk pulang terlambat libur kalender toleransi periode khusus ramadan mulai sistem',
+            'body' => 'Buka <strong>Jadwal Absensi</strong> yang memiliki beberapa tab:'
                 .'<ul><li><strong>Jadwal Mingguan</strong> &mdash; atur Mulai Scan Masuk, Akhir Scan Masuk, Jam Masuk Resmi, Toleransi Terlambat (menit), Mulai Scan Pulang, Akhir Scan Pulang, Jam Pulang Resmi, dan Toleransi Pulang Cepat (menit). Untuk sekolah 5 hari kerja, nonaktifkan hari Sabtu agar dihitung libur.</li>'
-                .'<li><strong>Kalender Hari Libur</strong> &mdash; tambahkan libur nasional, cuti bersama, atau libur semester. Scan pada hari libur ditolak dan tidak membuat data absensi.</li></ul>'
+                .'<li><strong>Kalender Hari Libur Khusus</strong> &mdash; tambahkan libur nasional, cuti bersama, atau libur semester. Scan pada hari libur ditolak dan tidak membuat data absensi.</li>'
+                .'<li><strong>Jadwal Khusus</strong> &mdash; buat periode tanggal (mis. Ramadan atau pekan ujian) berisi jadwal pengganti. Jadwal periode hanya berlaku pada rentang tanggalnya dan menimpa jadwal mingguan; tanggal di luar periode kembali memakai jadwal reguler. Presensi yang sudah tercatat <strong>tidak dihitung ulang</strong> saat periode dibuat, diubah, atau dihapus &mdash; perubahan hanya memengaruhi scan baru.</li>'
+                .'<li><strong>Mulai Sistem</strong> (khusus Administrator) &mdash; menetapkan tanggal pertama sistem absensi dipakai secara global. Data presensi dan riwayat scan <strong>sebelum tanggal tersebut disembunyikan, bukan dihapus</strong>, sehingga tetap tersedia untuk audit. Sistem juga tidak membuat Alpa otomatis, baris Perlu Tinjauan, atau catatan manual pada tanggal sebelum tanggal mulai, dan scan lama ditolak saat diproses. Mengosongkan tanggal ini menghapus batas dan menampilkan kembali data lama tanpa perhitungan ulang.</li></ul>'
                 .'Scan pertama di jendela masuk menentukan status <em>Tepat Waktu</em> atau <em>Terlambat</em>; scan di jendela pulang menjadi <em>Pulang</em>. Scan di luar jendela masuk/pulang ditolak. Scan pulang tanpa scan masuk disimpan sebagai <em>Perlu Tinjauan</em>.',
         ],
 
@@ -327,11 +359,11 @@
             'cat' => 'sistem',
             'title' => 'Bagaimana memantau layanan dan me-restart background service?',
             'keywords' => 'pusat kontrol sistem layanan service restart connector worker sinkron massal',
-            'body' => 'Buka <strong>Pusat Kontrol Sistem</strong>. Halaman menampilkan status keseluruhan (sehat/perlu perhatian/nonaktif) beserta heartbeat dan tiga kartu layanan:'
-                .'<ul><li><strong>C# Fingerprint Connector</strong> &mdash; pembaca scan mesin (PID, auto-restart, waktu mulai).</li>'
+            'body' => 'Buka <strong>Pusat Kontrol Sistem</strong>. Panel mendeteksi platform secara otomatis dan menampilkan badge platform, status keseluruhan (sehat/perlu perhatian/nonaktif), serta tiga kartu layanan:'
+                .'<ul><li><strong>Connector mesin</strong> &mdash; pembaca scan mesin (Windows: <em>C# Fingerprint Connector</em>; Linux: <em>Python Fingerprint Connector</em>) beserta PID, auto-restart, dan waktu mulai.</li>'
                 .'<li><strong>Laravel Queue Worker</strong> &mdash; pemroses antrean notifikasi (pending &amp; failed jobs).</li>'
-                .'<li><strong>Terminal Mesin Fingerprint</strong> &mdash; status online/offline tiap mesin.</li></ul>'
-                .'Tersedia aksi cepat <strong>Sinkron Massal</strong> dan <strong>Restart Semua Layanan</strong>, serta <em>live log viewer</em> untuk melihat log Connector/Worker.',
+                .'<li><strong>Scheduler</strong> &mdash; di Windows lewat supervisor, di Linux lewat unit systemd atau cron (ditandai <em>Terjadwal</em>).</li></ul>'
+                .'Tersedia aksi cepat <strong>Sinkron Massal</strong> dan <strong>Restart Semua Layanan</strong>, serta <em>live log viewer</em> untuk melihat log Connector/Worker. Di Linux tombol restart memakai helper systemd terbatas; di Windows tersedia tambahan <strong>Restart Supervisor</strong>. Bila status tidak dapat diperiksa, panel menampilkan <strong>Tidak Tersedia</strong> beserta alasannya.',
         ],
         [
             'cat' => 'sistem',
@@ -342,11 +374,12 @@
         [
             'cat' => 'sistem',
             'title' => 'Bagaimana memasang agar sistem otomatis berjalan saat komputer menyala?',
-            'keywords' => 'windows service otomatis auto start supervisor pemasangan teknisi',
-            'body' => 'Teknisi/Administrator cukup menjalankan skrip instalasi Windows Service <strong>satu kali</strong> dari folder Kontrol:'
-                .'<ul><li>Jalankan <code>Kontrol\Mulai SmartPresensi.cmd</code>.</li>'
-                .'<li>Windows Service <code>SmartPresensiSupervisor</code> akan otomatis berjalan di latar belakang saat komputer menyala, tanpa perlu login akun Windows.</li>'
-                .'<li>Operator cukup membuka browser untuk memantau kehadiran dan mengendalikan sistem dari dashboard.</li></ul>',
+            'keywords' => 'windows service otomatis auto start supervisor pemasangan teknisi linux systemd enable',
+            'body' => 'Teknisi/Administrator cukup menjalankan skrip instalasi <strong>satu kali</strong>. Di Windows, jalankan <code>Kontrol\Mulai SmartPresensi.cmd</code> agar Windows Service <code>SmartPresensiSupervisor</code> otomatis berjalan saat komputer menyala. Di Linux, aktifkan unit systemd:'
+                .'<ul><li><code>sudo systemctl enable --now smartpresensi-worker solutionx601-connector</code></li>'
+                .'<li><code>sudo systemctl enable --now smartpresensi-scheduler</code> (atau gunakan cron scheduler)</li>'
+                .'<li>Installer juga memasang helper restart terbatas dan rotasi log untuk Pusat Kontrol Sistem.</li></ul>'
+                .'Operator cukup membuka browser untuk memantau kehadiran dan mengendalikan sistem dari dashboard.',
         ],
         [
             'cat' => 'sistem',

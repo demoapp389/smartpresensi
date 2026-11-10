@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Attendance;
+use App\Models\SchedulePeriod;
 use App\Models\SchoolHoliday;
 use App\Models\SchoolSchedule;
 use App\Services\AttendanceStatusResolver;
@@ -20,6 +21,9 @@ class NormalizeLegacyAttendanceCommand extends Command
     /** @var Collection<int, SchoolSchedule> */
     private Collection $schedules;
 
+    /** @var Collection<int, SchedulePeriod> */
+    private Collection $periods;
+
     /** @var Collection<int, array{0: Carbon, 1: Carbon}> */
     private Collection $holidays;
 
@@ -35,9 +39,8 @@ class NormalizeLegacyAttendanceCommand extends Command
     {
         $dryRun = (bool) $this->option('dry-run');
         $this->timezone = config('app.timezone', 'Asia/Jakarta');
-        $this->schedules = SchoolSchedule::where('is_active', true)
-            ->get()
-            ->keyBy(fn (SchoolSchedule $schedule): int => (int) $schedule->day_of_week);
+        $this->schedules = SchoolSchedule::query()->get();
+        $this->periods = SchedulePeriod::query()->where('is_active', true)->get();
         $this->holidays = SchoolHoliday::active()
             ->get(['start_date', 'end_date'])
             ->map(fn (object $holiday): array => [
@@ -480,8 +483,8 @@ class NormalizeLegacyAttendanceCommand extends Command
             return null;
         }
 
-        $schedule = $this->schedules->get((int) $date->dayOfWeekIso);
+        $schedule = SchoolSchedule::resolveFrom($date, $this->schedules, $this->periods);
 
-        return $schedule instanceof SchoolSchedule ? $schedule : null;
+        return $schedule instanceof SchoolSchedule && $schedule->is_active ? $schedule : null;
     }
 }

@@ -3,7 +3,7 @@
 @section('title', 'Kontrol Sistem')
 @section('page-pretitle', 'Operasional & Layanan')
 @section('page-title', 'Pusat Kontrol Sistem & Background Services')
-@section('page-subtitle', 'Monitoring terpadu Windows Service, C# Connector Mesin, Laravel Queue Worker, Scheduler, dan Heartbeat')
+@section('page-subtitle', 'Monitoring terpadu layanan sistem: Windows Service / systemd, connector mesin, Laravel Queue Worker, scheduler, dan heartbeat')
 
 @section('breadcrumb')
     <a href="{{ route('dashboard') }}" class="transition-colors hover:text-[var(--text)]">Beranda</a>
@@ -37,7 +37,7 @@
             <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <div class="min-w-0">
                     <h2 class="text-xs font-bold text-[var(--text)]">Aksi Layanan Cepat</h2>
-                    <p class="text-[11px] text-[var(--text-muted)]">Sinkronisasi massal, restart background service, dan restart supervisor Windows</p>
+                    <p class="text-[11px] text-[var(--text-muted)]">Sinkronisasi massal, restart background service, dan restart supervisor (Windows)</p>
                 </div>
 
                 <div class="flex flex-wrap items-center gap-2">
@@ -66,17 +66,19 @@
                         </button>
                     </form>
 
-                    <form action="{{ route('system.restart-supervisor') }}" method="POST"
-                        data-confirm="Restart Windows Service SmartPresensiSupervisor? Koneksi web akan terputus beberapa detik saat layanan dimulai ulang."
-                        data-confirm-title="Restart Supervisor"
-                        data-confirm-label="Restart Supervisor"
-                        data-confirm-variant="warning">
-                        @csrf
-                        <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] border border-[var(--danger)]/30 bg-[var(--danger)]/10 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger)]/15 transition-colors">
-                            <svg class="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M5.07 19H19a2 2 0 001.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16A2 2 0 005.07 19z"/></svg>
-                            <span>Restart Supervisor</span>
-                        </button>
-                    </form>
+                    @if($status['restart_supported']['supervisor'])
+                        <form action="{{ route('system.restart-supervisor') }}" method="POST"
+                            data-confirm="Restart Windows Service SmartPresensiSupervisor? Koneksi web akan terputus beberapa detik saat layanan dimulai ulang."
+                            data-confirm-title="Restart Supervisor"
+                            data-confirm-label="Restart Supervisor"
+                            data-confirm-variant="warning">
+                            @csrf
+                            <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] border border-[var(--danger)]/30 bg-[var(--danger)]/10 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger)]/15 transition-colors">
+                                <svg class="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M5.07 19H19a2 2 0 001.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16A2 2 0 005.07 19z"/></svg>
+                                <span>Restart Supervisor</span>
+                            </button>
+                        </form>
+                    @endif
                 </div>
             </div>
         </section>
@@ -111,12 +113,18 @@
                         {{ $status['overall_status'] === 'healthy' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : ($status['overall_status'] === 'degraded' ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-rose-50 text-rose-800 border border-rose-200') }}">
                         {{ $status['overall_status'] }}
                     </span>
+                    <span class="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-[var(--surface-secondary)] text-[var(--text-secondary)] border border-[var(--border)]">
+                        {{ $status['platform_label'] }}
+                    </span>
                 </div>
-                <div class="text-xs text-[var(--text-secondary)] mt-0.5 flex items-center gap-2">
+                <div class="text-xs text-[var(--text-secondary)] mt-0.5 flex flex-wrap items-center gap-2">
                     <span>Heartbeat: <strong class="{{ $status['heartbeat']['fresh'] ? 'text-emerald-700' : 'text-rose-700' }}">{{ $status['heartbeat']['last_time'] }}</strong></span>
                     <span class="text-[var(--text-muted)]">&bull;</span>
-                    <span>Mode: {{ $status['is_live_api'] ? 'Real-Time API (Port 4372)' : 'File Heartbeat Observer' }}</span>
+                    <span>Mode: {{ $status['mode_label'] }}</span>
                 </div>
+                @if($status['unavailable_reason'])
+                    <p class="mt-1 text-[11px] text-amber-700">{{ $status['unavailable_reason'] }}</p>
+                @endif
             </div>
         </div>
     </div>
@@ -128,10 +136,26 @@
             <div>
                 <div class="flex items-center justify-between">
                     <span class="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Background Service 1</span>
-                    @if($status['connector']['running'])
+                    @php($connectorStatus = $status['connector']['status'])
+                    @if($connectorStatus === 'running')
                         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <span class="size-1.5 rounded-full bg-[var(--success)] animate-pulse"></span>
                             <span>Running</span>
+                        </span>
+                    @elseif($connectorStatus === 'starting')
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            <span class="size-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                            <span>Starting</span>
+                        </span>
+                    @elseif($connectorStatus === 'not_installed')
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            <span class="size-1.5 rounded-full bg-amber-500"></span>
+                            <span>Belum Terpasang</span>
+                        </span>
+                    @elseif($connectorStatus === 'unavailable')
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-50 text-slate-700 border border-slate-200">
+                            <span class="size-1.5 rounded-full bg-slate-400"></span>
+                            <span>Tidak Tersedia</span>
                         </span>
                     @else
                         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
@@ -141,8 +165,8 @@
                     @endif
                 </div>
 
-                <h4 class="text-sm font-bold text-[var(--text)] mt-1.5">C# Fingerprint Connector</h4>
-                <p class="text-[11px] text-[var(--text-secondary)]">Membaca scan mesin fingerprint via LAN TCP/IP &amp; ZKEM SDK</p>
+                <h4 class="text-sm font-bold text-[var(--text)] mt-1.5">{{ $status['connector']['label'] }}</h4>
+                <p class="text-[11px] text-[var(--text-secondary)]">{{ $status['connector']['description'] }}</p>
 
                 <div class="mt-3 p-2.5 bg-[var(--surface-secondary)] rounded-[var(--radius-sm)] border border-[var(--border-subtle)] space-y-1.5 text-xs">
                     <div class="flex justify-between">
@@ -182,10 +206,26 @@
             <div>
                 <div class="flex items-center justify-between">
                     <span class="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Background Service 2</span>
-                    @if($status['worker']['running'])
+                    @php($workerStatus = $status['worker']['status'])
+                    @if($workerStatus === 'running')
                         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <span class="size-1.5 rounded-full bg-[var(--success)] animate-pulse"></span>
                             <span>Running</span>
+                        </span>
+                    @elseif($workerStatus === 'starting')
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            <span class="size-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                            <span>Starting</span>
+                        </span>
+                    @elseif($workerStatus === 'not_installed')
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            <span class="size-1.5 rounded-full bg-amber-500"></span>
+                            <span>Belum Terpasang</span>
+                        </span>
+                    @elseif($workerStatus === 'unavailable')
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-50 text-slate-700 border border-slate-200">
+                            <span class="size-1.5 rounded-full bg-slate-400"></span>
+                            <span>Tidak Tersedia</span>
                         </span>
                     @else
                         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
@@ -195,8 +235,8 @@
                     @endif
                 </div>
 
-                <h4 class="text-sm font-bold text-[var(--text)] mt-1.5">Laravel Queue Worker</h4>
-                <p class="text-[11px] text-[var(--text-secondary)]">Memproses antrean kirim notifikasi WhatsApp ke wali siswa</p>
+                <h4 class="text-sm font-bold text-[var(--text)] mt-1.5">{{ $status['worker']['label'] }}</h4>
+                <p class="text-[11px] text-[var(--text-secondary)]">{{ $status['worker']['description'] }}</p>
 
                 <div class="mt-3 p-2.5 bg-[var(--surface-secondary)] rounded-[var(--radius-sm)] border border-[var(--border-subtle)] space-y-1.5 text-xs">
                     <div class="flex justify-between">
@@ -236,15 +276,36 @@
             <div>
                 <div class="flex items-center justify-between">
                     <span class="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Background Service 3</span>
-                    @if(! $status['scheduler']['enabled'])
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-50 text-slate-700 border border-slate-200">
-                            <span class="size-1.5 rounded-full bg-slate-400"></span>
-                            <span>Disabled</span>
+                    @php($schedulerStatus = $status['scheduler']['status'])
+                    @if($schedulerStatus === 'scheduled')
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <span class="size-1.5 rounded-full bg-[var(--success)] animate-pulse"></span>
+                            <span>Terjadwal (Cron)</span>
                         </span>
-                    @elseif($status['scheduler']['running'])
+                    @elseif($schedulerStatus === 'running')
                         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <span class="size-1.5 rounded-full bg-[var(--success)] animate-pulse"></span>
                             <span>Running</span>
+                        </span>
+                    @elseif($schedulerStatus === 'starting')
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            <span class="size-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                            <span>Starting</span>
+                        </span>
+                    @elseif($schedulerStatus === 'not_installed')
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            <span class="size-1.5 rounded-full bg-amber-500"></span>
+                            <span>Belum Terpasang</span>
+                        </span>
+                    @elseif($schedulerStatus === 'unavailable')
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-50 text-slate-700 border border-slate-200">
+                            <span class="size-1.5 rounded-full bg-slate-400"></span>
+                            <span>Tidak Tersedia</span>
+                        </span>
+                    @elseif($schedulerStatus === 'disabled')
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-50 text-slate-700 border border-slate-200">
+                            <span class="size-1.5 rounded-full bg-slate-400"></span>
+                            <span>Disabled</span>
                         </span>
                     @else
                         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
@@ -273,7 +334,15 @@
                 </div>
             </div>
 
-            <p class="text-[10px] text-[var(--text-muted)] leading-relaxed">Dikelola otomatis oleh Windows Service Supervisor.</p>
+            <p class="text-[10px] text-[var(--text-muted)] leading-relaxed">
+                @if($status['scheduler']['mode'] === 'cron')
+                    Dijalankan otomatis oleh cron sistem setiap menit.
+                @elseif($status['scheduler']['mode'] === 'systemd')
+                    Dikelola otomatis oleh unit systemd <span class="font-mono">smartpresensi-scheduler</span>.
+                @else
+                    Dikelola otomatis oleh Windows Service Supervisor.
+                @endif
+            </p>
         </div>
 
         <!-- 4. Terminal Mesin Fingerprint Status Card -->
@@ -341,7 +410,7 @@
                 <button type="button" @click="fetchLogs('connector')"
                     :class="activeTab === 'connector' ? 'bg-[var(--primary)] text-white font-semibold' : 'text-[var(--sidebar-text)] hover:text-white'"
                     class="px-2.5 py-1 rounded text-xs transition-colors">
-                    Connector Mesin Fingerprint
+                    {{ $status['connector']['label'] }}
                 </button>
                 <button type="button" @click="fetchLogs('worker')"
                     :class="activeTab === 'worker' ? 'bg-[var(--primary)] text-white font-semibold' : 'text-[var(--sidebar-text)] hover:text-white'"
@@ -405,28 +474,47 @@
         </div>
     </div>
 
-    <!-- Windows Service Auto-Start Setup Info Card -->
+    <!-- Auto-Start Setup Info Card -->
     <div class="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--shadow)] space-y-2">
         <div class="flex items-center gap-2">
             <span class="size-6 rounded bg-[var(--primary-soft)] text-[var(--primary-accessible)] flex items-center justify-center font-bold text-xs">
                 i
             </span>
             <div>
-                <h4 class="font-bold text-xs text-[var(--text)]">Pemasangan Otomatis Saat Komputer Menyala (Windows Service)</h4>
-                <p class="text-[11px] text-[var(--text-secondary)]">Agar sistem langsung bekerja saat PC dinyalakan tanpa perlu login akun Windows</p>
+                @if($status['platform'] === 'linux')
+                    <h4 class="font-bold text-xs text-[var(--text)]">Menjalankan Layanan Otomatis Saat Server Menyala (systemd)</h4>
+                    <p class="text-[11px] text-[var(--text-secondary)]">Agar worker, connector, dan scheduler langsung aktif tanpa login manual</p>
+                @else
+                    <h4 class="font-bold text-xs text-[var(--text)]">Pemasangan Otomatis Saat Komputer Menyala (Windows Service)</h4>
+                    <p class="text-[11px] text-[var(--text-secondary)]">Agar sistem langsung bekerja saat PC dinyalakan tanpa perlu login akun Windows</p>
+                @endif
             </div>
         </div>
 
         <div class="p-3 rounded-[var(--radius-sm)] bg-[var(--surface-secondary)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] space-y-1.5 leading-relaxed">
-            <p>
-                Teknisi / Administrator komputer sekolah cukup menjalankan skrip instalasi Windows Service <strong>satu kali saja</strong>:
-            </p>
-            <div class="font-mono bg-[var(--sidebar-bg)] text-emerald-400 p-2 rounded text-xs select-all border border-[var(--sidebar-border)]">
-                Kontrol\Mulai SmartPresensi.cmd
-            </div>
-            <p class="text-[11px] text-[var(--text-muted)]">
-                Setelah dipasang, Windows Service <code>SmartPresensiSupervisor</code> akan otomatis berjalan di latar belakang saat komputer menyala. Operator sekolah cukup membuka browser untuk memantau kehadiran dan mengontrol sistem melalui dashboard ini.
-            </p>
+            @if($status['platform'] === 'linux')
+                <p>
+                    Teknisi / Administrator server cukup mengaktifkan unit systemd <strong>satu kali</strong>:
+                </p>
+                <div class="font-mono bg-[var(--sidebar-bg)] text-emerald-400 p-2 rounded text-xs select-all border border-[var(--sidebar-border)] space-y-1">
+                    <div>sudo systemctl enable --now smartpresensi-worker solutionx601-connector</div>
+                    <div>sudo systemctl enable --now smartpresensi-scheduler</div>
+                </div>
+                <p class="text-[11px] text-[var(--text-muted)]">
+                    Gunakan <code>systemctl status</code> dan <code>journalctl -u &lt;unit&gt;</code> untuk pemeriksaan lanjutan.
+                    Restart dari panel ini memakai helper <code>smartpresensi-service</code> yang dipasang installer Linux.
+                </p>
+            @else
+                <p>
+                    Teknisi / Administrator komputer sekolah cukup menjalankan skrip instalasi Windows Service <strong>satu kali saja</strong>:
+                </p>
+                <div class="font-mono bg-[var(--sidebar-bg)] text-emerald-400 p-2 rounded text-xs select-all border border-[var(--sidebar-border)]">
+                    Kontrol\Mulai SmartPresensi.cmd
+                </div>
+                <p class="text-[11px] text-[var(--text-muted)]">
+                    Setelah dipasang, Windows Service <code>SmartPresensiSupervisor</code> akan otomatis berjalan di latar belakang saat komputer menyala. Operator sekolah cukup membuka browser untuk memantau kehadiran dan mengontrol sistem melalui dashboard ini.
+                </p>
+            @endif
         </div>
     </div>
 </div>

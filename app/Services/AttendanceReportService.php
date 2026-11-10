@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Attendance;
+use App\Models\SchedulePeriod;
 use App\Models\SchoolClass;
 use App\Models\SchoolHoliday;
 use App\Models\SchoolSchedule;
@@ -14,7 +15,8 @@ use Illuminate\Support\Collection;
 class AttendanceReportService
 {
     public function __construct(
-        protected AttendanceAlpaService $alpaService
+        protected AttendanceAlpaService $alpaService,
+        protected AttendancePeriodService $periodService,
     ) {}
 
     /**
@@ -24,22 +26,36 @@ class AttendanceReportService
      */
     public function getEffectiveDaysInMonth(Carbon $startDate, Carbon $endDate): array
     {
+        $startDate = $this->periodService->clamp($startDate->copy()->startOfDay());
+
+        if ($startDate->gt($endDate->copy()->endOfDay())) {
+            return [
+                'effective_days' => 0,
+                'holidays' => collect(),
+            ];
+        }
+
         $holidays = SchoolHoliday::active()
             ->whereDate('start_date', '<=', $endDate->toDateString())
             ->whereDate('end_date', '>=', $startDate->toDateString())
             ->get();
 
-        $activeDays = SchoolSchedule::getActiveDayNumbers();
-        $hasScheduleConfig = ! empty($activeDays);
-
         $effectiveDays = 0;
         $rangeStart = $startDate->copy()->startOfDay();
         $totalDays = (int) $rangeStart->diffInDays($endDate->copy()->startOfDay()) + 1;
 
+        /** @var Collection<int, SchoolSchedule> $schedules */
+        $schedules = SchoolSchedule::query()->get();
+        /** @var Collection<int, SchedulePeriod> $periods */
+        $periods = SchedulePeriod::query()->where('is_active', true)->get();
+
         for ($day = 1; $day <= $totalDays; $day++) {
             $cur = $rangeStart->copy()->addDays($day - 1);
             $dStr = $cur->toDateString();
-            $isOffDay = $hasScheduleConfig ? ! in_array((int) $cur->dayOfWeekIso, $activeDays, true) : ($cur->dayOfWeekIso === 7);
+            $schedule = SchoolSchedule::resolveFrom($cur, $schedules, $periods);
+            $isOffDay = $schedule !== null
+                ? ! $schedule->is_active
+                : ! SchoolSchedule::isSchoolDay($cur);
             $isHoliday = $holidays->contains(fn ($h) => $dStr >= $h->start_date->toDateString() && $dStr <= $h->end_date->toDateString());
 
             if (! $isOffDay && ! $isHoliday) {
@@ -155,24 +171,6 @@ class AttendanceReportService
     }
 
     /**
-     * Peta jam masuk/pulang resmi per hari (ISO: 1=Senin .. 7=Minggu) dari jadwal aktif.
-     *
-     * @return array<int, array{in: string, out: string}>
-     */
-    private function getScheduleMap(): array
-    {
-        return SchoolSchedule::where('is_active', true)
-            ->get()
-            ->mapWithKeys(fn ($schedule) => [
-                (int) $schedule->day_of_week => [
-                    'in' => $schedule->start_at ? substr($schedule->start_at, 0, 5) : '-',
-                    'out' => $schedule->end_at ? substr($schedule->end_at, 0, 5) : '-',
-                ],
-            ])
-            ->all();
-    }
-
-    /**
      * Laporan Presensi Harian.
      *
      * @param  array<string, mixed>  $filters
@@ -186,9 +184,14 @@ class AttendanceReportService
         $status = $filters['status'] ?? null;
 
         $parsedDate = Carbon::parse($date, 'Asia/Jakarta');
+        $beforeStart = $this->periodService->isBeforeStart($parsedDate);
 
         $recordQuery = Attendance::with(['student.schoolClass', 'operator'])
             ->whereDate('school_date', $date);
+
+        if ($beforeStart) {
+            $recordQuery->whereRaw('1 = 0');
+        }
 
         if ($classId) {
             $recordQuery->whereHas('student', fn ($q) => $q->where('class_id', $classId));
@@ -205,7 +208,7 @@ class AttendanceReportService
         if ($studentId) {
             $studentQuery->where('id', $studentId);
         }
-        $targetStudents = $studentQuery->get();
+        $targetStudents = $beforeStart ? collect() : $studentQuery->get();
         $totalTargetStudents = $targetStudents->count();
 
         $allRecords = (clone $recordQuery)->orderBy('student_id')->get();
@@ -246,11 +249,10 @@ class AttendanceReportService
         $totalRecorded = $allRecords->count();
         $totalHadir = $storedCounts['total_hadir'];
         $alpa = $storedCounts['alpa'] + $virtualAlpaCount;
-        $isEffectiveDate = SchoolSchedule::isSchoolDay($parsedDate)
+        $isEffectiveDate = ! $beforeStart
+            && SchoolSchedule::isSchoolDay($parsedDate)
             && ! SchoolHoliday::isHoliday($parsedDate);
-        $hasDailySchedule = SchoolSchedule::where('day_of_week', $parsedDate->dayOfWeekIso)
-            ->where('is_active', true)
-            ->exists();
+        $hasDailySchedule = SchoolSchedule::forDate($parsedDate) !== null;
         $hasMinuteCalculation = $isEffectiveDate && $hasDailySchedule;
         $belumHadir = $isEffectiveDate
             ? max(0, $totalTargetStudents - $totalRecorded - $virtualAlpaCount)
@@ -355,8 +357,11 @@ class AttendanceReportService
         $month = $filters['month'] ?? Carbon::now('Asia/Jakarta')->format('Y-m');
         $classId = $filters['class_id'] ?? null;
 
-        $startDate = Carbon::parse($month.'-01', 'Asia/Jakarta')->startOfMonth();
-        $endDate = $startDate->copy()->endOfMonth();
+        $periodStart = Carbon::parse($month.'-01', 'Asia/Jakarta')->startOfMonth();
+        $periodEnd = $periodStart->copy()->endOfMonth();
+        $startDate = $this->periodService->clamp($periodStart->copy()->startOfDay());
+        $endDate = $periodEnd;
+        $hasActiveWindow = $startDate->lte($endDate);
 
         $effectiveData = $this->getEffectiveDaysInMonth($startDate, $endDate);
         $effectiveDays = $effectiveData['effective_days'];
@@ -370,14 +375,18 @@ class AttendanceReportService
             $studentQuery->where('class_id', $classId);
         }
 
-        $students = $studentQuery->get();
+        $students = $hasActiveWindow ? $studentQuery->get() : collect();
 
-        $attendances = Attendance::whereIn('student_id', $students->pluck('id'))
-            ->whereBetween('school_date', [$startDate->toDateString(), $endDate->toDateString()])
-            ->get()
-            ->groupBy('student_id');
+        $attendances = $hasActiveWindow
+            ? Attendance::whereIn('student_id', $students->pluck('id'))
+                ->whereBetween('school_date', [$startDate->toDateString(), $endDate->toDateString()])
+                ->get()
+                ->groupBy('student_id')
+            : collect();
 
-        $alpaDateKeys = $this->alpaService->getAlpaDateKeys($startDate, $endDate);
+        $alpaDateKeys = $hasActiveWindow
+            ? $this->alpaService->getAlpaDateKeys($startDate, $endDate)
+            : [];
 
         $rowsList = [];
         $totalHadirAll = 0;
@@ -474,8 +483,8 @@ class AttendanceReportService
             'type' => 'monthly',
             'title' => 'REKAPITULASI PRESENSI BULANAN',
             'month' => $month,
-            'month_formatted' => $startDate->locale('id')->isoFormat('MMMM Y'),
-            'startDate' => $startDate,
+            'month_formatted' => $periodStart->locale('id')->isoFormat('MMMM Y'),
+            'startDate' => $periodStart,
             'effectiveDays' => $effectiveDays,
             'selectedClass' => $selectedClass,
             'summary' => $summary,
@@ -495,8 +504,11 @@ class AttendanceReportService
         $month = $filters['month'] ?? Carbon::now('Asia/Jakarta')->format('Y-m');
         $classId = $filters['class_id'] ?? null;
 
-        $startDate = Carbon::parse($month.'-01', 'Asia/Jakarta')->startOfMonth();
-        $endDate = $startDate->copy()->endOfMonth();
+        $periodStart = Carbon::parse($month.'-01', 'Asia/Jakarta')->startOfMonth();
+        $periodEnd = $periodStart->copy()->endOfMonth();
+        $startDate = $this->periodService->clamp($periodStart->copy()->startOfDay());
+        $endDate = $periodEnd;
+        $hasActiveWindow = $startDate->lte($endDate);
 
         $effectiveData = $this->getEffectiveDaysInMonth($startDate, $endDate);
         $effectiveDays = $effectiveData['effective_days'];
@@ -516,7 +528,7 @@ class AttendanceReportService
         $classTotalVirtualAlpa = 0;
         $classTotalHadirKeseluruhan = 0;
 
-        if ($selectedClass && $selectedClass->students->isNotEmpty()) {
+        if ($hasActiveWindow && $selectedClass && $selectedClass->students->isNotEmpty()) {
             $studentIds = $selectedClass->students->pluck('id')->toArray();
             $classAttendances = Attendance::whereIn('student_id', $studentIds)
                 ->whereBetween('school_date', [$startDate->toDateString(), $endDate->toDateString()])
@@ -608,8 +620,8 @@ class AttendanceReportService
             'type' => 'class',
             'title' => 'LAPORAN REKAPITULASI PRESENSI KELAS',
             'month' => $month,
-            'month_formatted' => $startDate->locale('id')->isoFormat('MMMM Y'),
-            'startDate' => $startDate,
+            'month_formatted' => $periodStart->locale('id')->isoFormat('MMMM Y'),
+            'startDate' => $periodStart,
             'effectiveDays' => $effectiveDays,
             'selectedClass' => $selectedClass,
             'summary' => $summary,
@@ -638,13 +650,19 @@ class AttendanceReportService
             $selectedStudent = $studentQuery->orderBy('name')->first();
         }
 
-        $startDate = Carbon::parse($month.'-01', 'Asia/Jakarta')->startOfMonth();
-        $endDate = $startDate->copy()->endOfMonth();
-        $totalDaysInMonth = $endDate->day;
+        $periodStart = Carbon::parse($month.'-01', 'Asia/Jakarta')->startOfMonth();
+        $periodEnd = $periodStart->copy()->endOfMonth();
+        $startDate = $this->periodService->clamp($periodStart->copy()->startOfDay());
+        $endDate = $periodEnd;
+        $hasActiveWindow = $startDate->lte($endDate);
+        $totalDaysInMonth = $periodEnd->day;
 
-        $scheduleMap = $this->getScheduleMap();
+        /** @var Collection<int, SchoolSchedule> $schedules */
+        $schedules = SchoolSchedule::query()->get();
+        /** @var Collection<int, SchedulePeriod> $periods */
+        $periods = SchedulePeriod::query()->where('is_active', true)->get();
 
-        $attendances = $selectedStudent
+        $attendances = $selectedStudent && $hasActiveWindow
             ? Attendance::where('student_id', $selectedStudent->id)
                 ->whereBetween('school_date', [$startDate->toDateString(), $endDate->toDateString()])
                 ->get()
@@ -656,7 +674,9 @@ class AttendanceReportService
             ->whereDate('end_date', '>=', $startDate->toDateString())
             ->get();
 
-        $alpaDateKeys = $this->alpaService->getAlpaDateKeys($startDate, $endDate);
+        $alpaDateKeys = $hasActiveWindow
+            ? $this->alpaService->getAlpaDateKeys($startDate, $endDate)
+            : [];
 
         $dailyRows = [];
         $summary = [
@@ -673,14 +693,15 @@ class AttendanceReportService
         ];
         $legacyPulangCepatCount = 0;
 
-        $activeDays = SchoolSchedule::getActiveDayNumbers();
-        $hasScheduleConfig = ! empty($activeDays);
-
         for ($day = 1; $day <= $totalDaysInMonth; $day++) {
-            $currentDate = $startDate->copy()->day($day);
+            $currentDate = $periodStart->copy()->day($day);
             $dateStr = $currentDate->toDateString();
-            $dayOfWeek = (int) $currentDate->dayOfWeekIso; // 1 = Senin, 7 = Minggu
-            $isWeekendOrOff = $hasScheduleConfig ? ! in_array($dayOfWeek, $activeDays, true) : ($dayOfWeek === 7);
+            $isBeforeStart = $this->periodService->isBeforeStart($currentDate);
+            $resolvedSchedule = SchoolSchedule::resolveFrom($currentDate, $schedules, $periods);
+            $schedule = $resolvedSchedule?->is_active ? $resolvedSchedule : null;
+            $isWeekendOrOff = $resolvedSchedule !== null
+                ? ! $resolvedSchedule->is_active
+                : ! SchoolSchedule::isSchoolDay($currentDate);
 
             $holidayMatch = $holidays->first(function ($h) use ($dateStr) {
                 return $dateStr >= $h->start_date->toDateString() && $dateStr <= $h->end_date->toDateString();
@@ -689,12 +710,13 @@ class AttendanceReportService
             $att = $attendances->get($dateStr);
             $isSchoolHoliday = $holidayMatch !== null;
             $isHolidayDay = $isWeekendOrOff || $isSchoolHoliday;
-            $schedule = $scheduleMap[$dayOfWeek] ?? null;
 
             $statusText = '-';
             $isVirtualAlpa = false;
 
-            if ($att) {
+            if ($isBeforeStart) {
+                $statusText = '-';
+            } elseif ($att) {
                 $statusText = $att->status;
                 if ($att->status === 'hadir') {
                     $summary['hadir']++;
@@ -725,13 +747,14 @@ class AttendanceReportService
                 $summary['virtual_alpa']++;
             }
 
-            $isAlpa = ! $isSchoolHoliday
+            $isAlpa = ! $isBeforeStart
+                && ! $isSchoolHoliday
                 && isset($alpaDateKeys[$dateStr])
                 && $this->isAlpaWithoutAttendanceEvidence($att);
 
             $note = $this->attendanceDescription($isSchoolHoliday, $isAlpa);
 
-            if (! $isHolidayDay) {
+            if (! $isHolidayDay && ! $isBeforeStart) {
                 $summary['total_effective']++;
             }
 
@@ -741,12 +764,13 @@ class AttendanceReportService
                 'date_formatted' => $currentDate->format('d/m/Y'),
                 'day_name' => $currentDate->locale('id')->isoFormat('dddd'),
                 'attendance' => $att,
-                'schedule_in' => $schedule['in'] ?? '-',
-                'schedule_out' => $schedule['out'] ?? '-',
+                'schedule_in' => $schedule?->start_at ? substr($schedule->start_at, 0, 5) : '-',
+                'schedule_out' => $schedule?->end_at ? substr($schedule->end_at, 0, 5) : '-',
                 'check_in_at' => $att?->check_in_at ? $att->check_in_at->format('H:i') : '-',
                 'check_out_at' => $att?->check_out_at ? $att->check_out_at->format('H:i') : '-',
                 'status' => $statusText,
-                'is_holiday' => $isHolidayDay,
+                'is_holiday' => ! $isBeforeStart && $isHolidayDay,
+                'is_before_start' => $isBeforeStart,
                 'is_virtual_alpa' => $isVirtualAlpa,
                 'late_minutes' => (int) ($att?->late_minutes ?? 0),
                 'early_leave_minutes' => (int) ($att?->early_leave_minutes ?? 0),
@@ -770,8 +794,8 @@ class AttendanceReportService
             'type' => 'student',
             'title' => 'LAPORAN PRESENSI BULANAN',
             'month' => $month,
-            'month_formatted' => $startDate->locale('id')->isoFormat('MMMM Y'),
-            'startDate' => $startDate,
+            'month_formatted' => $periodStart->locale('id')->isoFormat('MMMM Y'),
+            'startDate' => $periodStart,
             'selectedStudent' => $selectedStudent,
             'selectedClass' => $selectedStudent?->schoolClass,
             'dailyRows' => $dailyRows,

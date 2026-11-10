@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\Guardian;
 use App\Observers\GuardianObserver;
+use App\Services\AttendancePeriodService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\Paginator;
@@ -18,7 +19,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Singleton agar batas tanggal mulai absensi dibaca sekali per request.
+        $this->app->singleton(AttendancePeriodService::class);
     }
 
     /**

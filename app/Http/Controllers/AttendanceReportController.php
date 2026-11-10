@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Concerns\LogsAuditTrail;
 use App\Models\SchoolClass;
 use App\Models\Student;
+use App\Services\AttendancePeriodService;
 use App\Services\AttendanceReportService;
 use App\Services\SimpleXlsxExporter;
 use Carbon\Carbon;
@@ -18,7 +19,8 @@ class AttendanceReportController extends Controller
     use LogsAuditTrail;
 
     public function __construct(
-        protected AttendanceReportService $reportService
+        protected AttendanceReportService $reportService,
+        protected AttendancePeriodService $periodService,
     ) {}
 
     /**
@@ -45,6 +47,9 @@ class AttendanceReportController extends Controller
         $classId = ($type === 'monthly') ? null : ($isHomeroom ? $userClassId : $request->input('class_id'));
         $studentId = $type === 'daily' ? null : $request->input('student_id');
         $status = $request->input('status');
+
+        $attendanceStartDate = $this->periodService->startDate();
+        $isBeforeStart = $this->periodService->isBeforeStart($date);
 
         $classes = $isHomeroom && $userClassId
             ? SchoolClass::where('id', $userClassId)->get()
@@ -137,7 +142,9 @@ class AttendanceReportController extends Controller
             'reportData',
             'isHomeroom',
             'activeReportParams',
-            'hasActiveFilter'
+            'hasActiveFilter',
+            'attendanceStartDate',
+            'isBeforeStart'
         ));
     }
 

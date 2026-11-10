@@ -34,9 +34,12 @@ class AttendanceProcessingService
 
     private const NOTE_NO_SCHEDULE = 'Tidak ada jadwal aktif untuk hari ini';
 
+    private const NOTE_BEFORE_START = 'Scan sebelum tanggal mulai sistem absensi';
+
     public function __construct(
         private readonly AttendanceStatusResolver $statusResolver,
         private readonly ScanTimeReviewService $scanTimeReview,
+        private readonly AttendancePeriodService $periodService,
     ) {}
 
     /**
@@ -96,6 +99,17 @@ class AttendanceProcessingService
         $studentId = $student->id;
         $scanTime = $this->resolveScanTime($log);
 
+        // Tanggal sebelum mulai sistem tidak boleh menghasilkan presensi apa pun,
+        // termasuk saat replay historis setelah PIN dipetakan.
+        if ($this->periodService->isBeforeStart($scanTime)) {
+            $log->update([
+                'status' => 'rejected',
+                'processing_note' => self::NOTE_BEFORE_START,
+            ]);
+
+            return null;
+        }
+
         if (! $allowHistorical) {
             $reviewReason = $this->scanTimeReview->reviewReason($log, $scanTime);
 
@@ -111,12 +125,9 @@ class AttendanceProcessingService
         }
 
         $schoolDate = $scanTime->toDateString();
-        $dayOfWeek = $scanTime->dayOfWeekIso; // 1 = Senin, 7 = Minggu
 
-        // Ambil jadwal hari ini
-        $schedule = SchoolSchedule::where('day_of_week', $dayOfWeek)
-            ->where('is_active', true)
-            ->first();
+        // Ambil jadwal yang berlaku pada tanggal scan (reguler atau khusus).
+        $schedule = SchoolSchedule::forDate($scanTime);
 
         $isHoliday = SchoolHoliday::isHoliday($schoolDate);
 
