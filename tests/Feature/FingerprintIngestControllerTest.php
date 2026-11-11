@@ -253,6 +253,70 @@ class FingerprintIngestControllerTest extends TestCase
         $this->assertDatabaseCount('notification_logs', 0);
     }
 
+    public function test_ingest_rejects_overlong_identifiers_and_source_keys(): void
+    {
+        $device = $this->device();
+        $headers = ['X-Device-Token' => $device->secret_token];
+
+        $this->postJson('/api/v1/fingerprint/ingest', [
+            'logs' => [[
+                'machine_user_id' => str_repeat('9', 51),
+                'occurred_at' => '2026-10-14 07:05:12',
+            ]],
+        ], $headers)->assertStatus(422)->assertJsonValidationErrors('logs.0.machine_user_id');
+
+        $this->postJson('/api/v1/fingerprint/ingest', [
+            'logs' => [[
+                'machine_user_id' => '7001',
+                'occurred_at' => '2026-10-14 07:05:12',
+                'source_key' => str_repeat('k', 129),
+            ]],
+        ], $headers)->assertStatus(422)->assertJsonValidationErrors('logs.0.source_key');
+
+        $this->assertDatabaseCount('attendance_logs', 0);
+    }
+
+    public function test_ingest_rejects_an_invalid_scan_time_instead_of_failing_with_500(): void
+    {
+        $device = $this->device();
+
+        $this->postJson('/api/v1/fingerprint/ingest', [
+            'logs' => [[
+                'machine_user_id' => '7001',
+                'occurred_at' => 'bukan-waktu',
+            ]],
+        ], ['X-Device-Token' => $device->secret_token])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('logs.0.occurred_at');
+
+        $this->assertDatabaseCount('attendance_logs', 0);
+    }
+
+    public function test_ingest_ignores_a_client_supplied_source_key_to_prevent_dedupe_bypass(): void
+    {
+        $device = $this->device();
+        $headers = ['X-Device-Token' => $device->secret_token];
+
+        $first = $this->payload();
+        $first['logs'][0]['source_key'] = 'x601_7001_1';
+
+        $this->postJson('/api/v1/fingerprint/ingest', $first, $headers)
+            ->assertOk()
+            ->assertJsonPath('summary.new_inserted', 1);
+
+        // Scan yang sama dikirim ulang dengan kunci berbeda; server tetap memakai
+        // kunci kanonik sehingga baris ganda tidak dibuat.
+        $second = $this->payload();
+        $second['logs'][0]['source_key'] = 'kunci-palsu-'.uniqid();
+
+        $this->postJson('/api/v1/fingerprint/ingest', $second, $headers)
+            ->assertOk()
+            ->assertJsonPath('summary.new_inserted', 0)
+            ->assertJsonPath('summary.duplicates_skipped', 1);
+
+        $this->assertSame(1, AttendanceLog::where('device_id', $device->id)->count());
+    }
+
     public function test_ping_returns_ok_and_marks_the_device_online(): void
     {
         $device = $this->device(['status' => 'offline']);

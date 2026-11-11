@@ -49,9 +49,13 @@ class FingerprintIngestService
         $rows = [];
 
         foreach ($logs as $item) {
-            $machineUserId = (string) ($item['machine_user_id'] ?? $item['pin'] ?? '');
+            $machineUserId = trim((string) ($item['machine_user_id'] ?? $item['pin'] ?? ''));
             $occurredAt = Carbon::parse($item['occurred_at'] ?? $item['time']);
-            $sourceKey = $item['source_key'] ?? self::canonicalSourceKey($machineUserId, $occurredAt);
+
+            // `source_key` selalu dihitung ulang di server. Nilai dari klien tidak
+            // dipercaya karena bisa dipakai untuk melewati deduplikasi (scan yang
+            // sama dikirim dengan kunci berbeda akan menjadi baris ganda).
+            $sourceKey = self::canonicalSourceKey($machineUserId, $occurredAt);
 
             // Buang duplikat DI DALAM satu batch (kunci sama dua kali) agar hitungan akurat.
             if (isset($rows[$sourceKey])) {
@@ -62,6 +66,18 @@ class FingerprintIngestService
 
             $isMapped = isset($mappedUsers[$machineUserId]);
 
+            // Simpan hanya field yang dikenal agar payload berukuran besar dari klien
+            // tidak ikut masuk ke kolom raw_payload.
+            $rawPayload = array_intersect_key($item, array_flip([
+                'machine_user_id',
+                'pin',
+                'time',
+                'occurred_at',
+                'verify_type',
+                'in_out_mode',
+                'source_key',
+            ]));
+
             $rows[$sourceKey] = [
                 'device_id' => $device->id,
                 'machine_user_id' => $machineUserId,
@@ -69,7 +85,7 @@ class FingerprintIngestService
                 'received_at' => $now,
                 'source_key' => $sourceKey,
                 'status' => $isMapped ? 'unprocessed' : 'unmapped',
-                'raw_payload' => json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'raw_payload' => json_encode($rawPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 'created_at' => $now,
                 'updated_at' => $now,
             ];

@@ -111,6 +111,34 @@ class PruneConnectorResourcesCommandTest extends TestCase
         $this->assertFileExists($recentDaily);
     }
 
+    public function test_it_prunes_buffers_and_state_inside_per_device_directories(): void
+    {
+        $deviceDir = $this->root.'/connector/state/gerbang';
+        File::makeDirectory($deviceDir, 0755, true);
+
+        $bufferPath = $deviceDir.'/offline_buffer.txt';
+        File::put($bufferPath, implode(PHP_EOL, array_map(fn ($i) => 'buffer-'.$i, range(1, 300))).PHP_EOL);
+
+        $staleCheckpoint = $deviceDir.'/checkpoint.txt';
+        File::put($staleCheckpoint, '2026-01-01 00:00:00');
+        touch($staleCheckpoint, now()->subDays(40)->getTimestamp());
+
+        $this->artisan('fingerprint:prune-resources', [
+            '--logs-dir' => $this->root.'/logs',
+            '--connector-dir' => $this->root.'/connector',
+            '--buffer-keep-lines' => 5,
+            '--buffer-max-bytes' => 1,
+            '--state-keep-days' => 14,
+        ])->assertExitCode(0);
+
+        $bufferLines = file($bufferPath, FILE_IGNORE_NEW_LINES);
+        $this->assertCount(5, $bufferLines);
+        $this->assertSame('buffer-296', $bufferLines[0]);
+
+        $this->assertFileDoesNotExist($staleCheckpoint);
+        $this->assertFileExists($bufferPath);
+    }
+
     public function test_it_prunes_sync_logs_older_than_retention(): void
     {
         $device = FingerprintDevice::create([

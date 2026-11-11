@@ -51,7 +51,9 @@ Route::middleware('auth')->group(function () {
 
     // 2. Presensi, Laporan & Koreksi Operator
     Route::get('/attendances', [AttendanceRecordController::class, 'index'])->name('attendances.index');
-    Route::get('/attendances/export', [AttendanceRecordController::class, 'export'])->name('attendances.export');
+    Route::get('/attendances/export', [AttendanceRecordController::class, 'export'])
+        ->middleware('throttle:20,1')
+        ->name('attendances.export');
     Route::get('/attendances/reports', [AttendanceReportController::class, 'index'])->name('attendances.reports.index');
     Route::get('/attendances/reports/print', [AttendanceReportController::class, 'print'])->name('attendances.reports.print');
     Route::get('/attendances/reports/export', [AttendanceReportController::class, 'export'])->name('attendances.reports.export');
@@ -84,7 +86,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/students/search', [StudentController::class, 'searchOptions'])->name('students.search-options');
 
         Route::get('/students/template', [StudentController::class, 'downloadTemplate'])->name('students.template');
-        Route::post('/students/import', [StudentController::class, 'import'])->name('students.import');
+        Route::post('/students/import', [StudentController::class, 'import'])
+            ->middleware('throttle:10,1')
+            ->name('students.import');
         Route::delete('/students/bulk', [StudentController::class, 'bulkDestroy'])->name('students.bulk-destroy');
         Route::post('/students/bulk-assign-class', [StudentController::class, 'bulkAssignClass'])->name('students.bulk-assign-class');
         Route::post('/students/bulk-restore', [StudentController::class, 'bulkRestore'])->name('students.bulk-restore');

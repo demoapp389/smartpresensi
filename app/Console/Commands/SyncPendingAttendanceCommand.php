@@ -83,7 +83,8 @@ class SyncPendingAttendanceCommand extends Command
             ->pluck('id');
 
         $existingStudentIds = Attendance::query()
-            ->whereDate('school_date', $date->toDateString())
+            ->where('school_date', '>=', $date->toDateString())
+            ->where('school_date', '<', $date->copy()->addDay()->toDateString())
             ->pluck('student_id')
             ->map(fn (int|string $id): int => (int) $id)
             ->all();
@@ -147,7 +148,7 @@ class SyncPendingAttendanceCommand extends Command
             ->whereNull('check_in_at')
             ->whereNull('check_out_at')
             ->where('is_manual_override', false)
-            ->whereDate('school_date', '<', $today->toDateString())
+            ->where('school_date', '<', $today->toDateString())
             ->orderBy('id')
             ->chunkById(200, function (Collection $attendances) use ($today, $dryRun, $schedules, $periods, $holidays, $timezone, &$finalized, &$firstAttendanceId, &$lastAttendanceId): void {
                 foreach ($attendances as $attendance) {
@@ -166,7 +167,7 @@ class SyncPendingAttendanceCommand extends Command
                             ->whereNull('check_in_at')
                             ->whereNull('check_out_at')
                             ->where('is_manual_override', false)
-                            ->whereDate('school_date', '<', $today->toDateString())
+                            ->where('school_date', '<', $today->toDateString())
                             ->lockForUpdate()
                             ->first();
 

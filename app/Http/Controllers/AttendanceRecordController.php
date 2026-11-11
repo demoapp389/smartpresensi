@@ -16,6 +16,8 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -400,9 +402,13 @@ class AttendanceRecordController extends Controller
         $targetStudent = Student::findOrFail($validated['student_id']);
         $this->periodService->assertNotBeforeStart($validated['school_date']);
 
-        DB::transaction(function () use ($validated, $user, $targetStudent): void {
+        $schoolDate = Carbon::parse($validated['school_date'])->toDateString();
+        $nextSchoolDate = Carbon::parse($schoolDate)->addDay()->toDateString();
+
+        DB::transaction(function () use ($validated, $user, $targetStudent, $schoolDate, $nextSchoolDate): void {
             $attendance = Attendance::where('student_id', $validated['student_id'])
-                ->whereDate('school_date', $validated['school_date'])
+                ->where('school_date', '>=', $schoolDate)
+                ->where('school_date', '<', $nextSchoolDate)
                 ->lockForUpdate()
                 ->first();
 
@@ -414,7 +420,7 @@ class AttendanceRecordController extends Controller
                 $attendance,
                 $validated['status'],
                 $validated['override_reason'],
-                $validated['school_date'],
+                $schoolDate,
             );
 
             if ($attendance) {
@@ -423,7 +429,7 @@ class AttendanceRecordController extends Controller
             } else {
                 $record = Attendance::create(array_merge([
                     'student_id' => $validated['student_id'],
-                    'school_date' => $validated['school_date'],
+                    'school_date' => $schoolDate,
                 ], $attributes));
             }
 
@@ -446,18 +452,36 @@ class AttendanceRecordController extends Controller
      */
     public function export(Request $request): BinaryFileResponse|StreamedResponse
     {
-        $dateFrom = $request->input('date_from', Carbon::today('Asia/Jakarta')->toDateString());
-        $dateTo = $request->input('date_to', $dateFrom);
-        if ($request->filled('date')) {
-            $dateFrom = $request->input('date');
+        $validated = $request->validate([
+            'date_from' => ['nullable', 'date_format:Y-m-d'],
+            'date_to' => ['nullable', 'date_format:Y-m-d'],
+            'date' => ['nullable', 'date_format:Y-m-d'],
+            'month' => ['nullable', 'date_format:Y-m'],
+            'class_id' => ['nullable', 'integer', 'exists:classes,id'],
+            'student_id' => ['nullable', 'integer', 'exists:students,id'],
+            'status' => ['nullable', Rule::in(array_keys(Attendance::STATUS_LABELS))],
+            'out_status' => ['nullable', Rule::in(array_keys(Attendance::CHECK_OUT_STATUS_LABELS))],
+            'format' => ['nullable', Rule::in(['xlsx', 'csv'])],
+        ]);
+
+        $dateFrom = $validated['date_from'] ?? Carbon::today('Asia/Jakarta')->toDateString();
+        $dateTo = $validated['date_to'] ?? $dateFrom;
+        if (! empty($validated['date'])) {
+            $dateFrom = $validated['date'];
             $dateTo = $dateFrom;
         }
 
-        $classId = $request->input('class_id');
-        $studentId = $request->input('student_id');
-        $status = $request->input('status');
-        $outStatus = $request->input('out_status');
-        $format = $request->input('format', 'xlsx');
+        if ($dateTo < $dateFrom) {
+            throw ValidationException::withMessages([
+                'date_to' => 'Tanggal akhir tidak boleh lebih awal dari tanggal mulai.',
+            ]);
+        }
+
+        $classId = $validated['class_id'] ?? null;
+        $studentId = $validated['student_id'] ?? null;
+        $status = $validated['status'] ?? null;
+        $outStatus = $validated['out_status'] ?? null;
+        $format = $validated['format'] ?? 'xlsx';
 
         if (Auth::user()?->isHomeroomTeacher()) {
             $classId = Auth::user()->class_id;
@@ -475,8 +499,8 @@ class AttendanceRecordController extends Controller
             ->orderBy('school_date');
         $attendanceStartDate = $this->periodService->startDate();
 
-        if ($request->filled('month')) {
-            $month = $request->input('month');
+        if (! empty($validated['month'])) {
+            $month = $validated['month'];
             $startDate = Carbon::parse($month.'-01', 'Asia/Jakarta')->startOfMonth();
             $endDate = $startDate->copy()->endOfMonth();
             $periodLabel = $month;
@@ -500,7 +524,9 @@ class AttendanceRecordController extends Controller
                 }
 
                 if ($dateFrom === $dateTo) {
-                    $query->whereDate('school_date', $dateFrom);
+                    $nextDate = Carbon::parse($dateFrom)->addDay()->toDateString();
+                    $query->where('school_date', '>=', $dateFrom)
+                        ->where('school_date', '<', $nextDate);
                 } else {
                     $query->whereBetween('school_date', [$dateFrom, $dateTo]);
                 }

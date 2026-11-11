@@ -458,6 +458,23 @@ class StudentImportTest extends TestCase
         $this->assertStringNotContainsString('ZipArchive', $message);
     }
 
+    public function test_import_rejects_a_workbook_with_too_many_columns(): void
+    {
+        $headers = array_map(fn (int $i): string => 'Kolom '.$i, range(1, 101));
+
+        $file = $this->makeXlsxUpload($headers, [], 'terlalu_lebar.xlsx');
+
+        $response = $this->actingAs($this->admin)->post(route('students.import'), [
+            'file' => $file,
+        ]);
+
+        $response->assertRedirect(route('students.index'));
+        $response->assertSessionHasErrors('file');
+
+        $message = (string) session('errors')->first('file');
+        $this->assertStringContainsString('Gagal membaca isi file Excel', $message);
+    }
+
     public function test_import_with_pin_but_without_device_records_row_error(): void
     {
         $file = $this->makeXlsxUpload(

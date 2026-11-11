@@ -44,11 +44,14 @@ class FingerprintIngestController extends Controller
             // Connector mengirim sekitar 20 log per batch; batas ini mencegah
             // satu request membanjiri memori/database bila token disalahgunakan.
             'logs' => ['required', 'array', 'max:500'],
-            'logs.*.machine_user_id' => ['required_without:logs.*.pin'],
-            'logs.*.pin' => ['required_without:logs.*.machine_user_id'],
-            'logs.*.occurred_at' => ['required_without:logs.*.time'],
-            'logs.*.time' => ['required_without:logs.*.occurred_at'],
-            'logs.*.source_key' => ['nullable', 'string'],
+            // Batas panjang mengikuti kolom attendance_logs (machine_user_id 50,
+            // source_key 128) agar request yang terlalu panjang ditolak sebagai 422,
+            // bukan gagal di database.
+            'logs.*.machine_user_id' => ['required_without:logs.*.pin', 'string', 'max:50'],
+            'logs.*.pin' => ['required_without:logs.*.machine_user_id', 'string', 'max:50'],
+            'logs.*.occurred_at' => ['required_without:logs.*.time', 'date', 'after:2000-01-01', 'before:2100-01-01'],
+            'logs.*.time' => ['required_without:logs.*.occurred_at', 'date', 'after:2000-01-01', 'before:2100-01-01'],
+            'logs.*.source_key' => ['nullable', 'string', 'max:128'],
             // Connector mengirim live=false untuk batch dari offline buffer.
             'live' => ['sometimes', 'boolean'],
         ]);

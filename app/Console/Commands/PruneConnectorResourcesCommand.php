@@ -104,22 +104,27 @@ class PruneConnectorResourcesCommand extends Command
 
     private function pruneBuffer(string $connectorDir): void
     {
-        $path = $connectorDir.DIRECTORY_SEPARATOR.'offline_buffer.txt';
-
-        if (! File::exists($path)) {
-            return;
-        }
+        // Buffer bisa berada di root (mesin legacy) atau di state/<key>/ untuk
+        // konfigurasi multi-mesin. Keduanya harus dipangkas agar tidak tumbuh
+        // tanpa batas saat connector lama offline.
+        $paths = array_merge(
+            [$connectorDir.DIRECTORY_SEPARATOR.'offline_buffer.txt'],
+            File::glob($connectorDir.DIRECTORY_SEPARATOR.'state'.DIRECTORY_SEPARATOR.'*'.DIRECTORY_SEPARATOR.'offline_buffer.txt') ?: []
+        );
 
         $maxBytes = (int) $this->option('buffer-max-bytes');
-
-        if (File::size($path) <= $maxBytes) {
-            return;
-        }
-
         $keep = (int) $this->option('buffer-keep-lines');
 
-        if ($this->keepLastLines($path, $keep)) {
-            $this->info("Offline buffer dipangkas (disisakan {$keep} baris terakhir).");
+        foreach ($paths as $path) {
+            if (! File::exists($path) || File::size($path) <= $maxBytes) {
+                continue;
+            }
+
+            if ($this->keepLastLines($path, $keep)) {
+                // Pemangkasan membuang scan tertua yang belum sempat terkirim.
+                // Tampilkan peringatan agar operator tahu ada data yang hilang.
+                $this->warn('Offline buffer dipangkas (disisakan '.$keep.' baris terakhir): '.basename(dirname($path)).'/'.basename($path));
+            }
         }
     }
 
@@ -135,7 +140,14 @@ class PruneConnectorResourcesCommand extends Command
         $threshold = now()->subDays($keepDays)->getTimestamp();
         $deleted = 0;
 
-        foreach (File::files($stateDir) as $file) {
+        // allFiles() menelusuri state/<key>/ milik tiap mesin, bukan hanya
+        // berkas di root state. Offline buffer dikecualikan karena berisi scan
+        // yang belum terkirim; berkas itu hanya dipangkas berdasarkan ukuran.
+        foreach (File::allFiles($stateDir) as $file) {
+            if ($file->getFilename() === 'offline_buffer.txt') {
+                continue;
+            }
+
             if ($file->getMTime() < $threshold) {
                 File::delete($file->getPathname());
                 $deleted++;

@@ -150,6 +150,37 @@ class AttendanceReportsAndExportTest extends TestCase
         $this->assertStringContainsString('Belum Absen', $content);
     }
 
+    public function test_attendance_export_rejects_invalid_parameters(): void
+    {
+        $this->actingAs($this->admin)
+            ->get(route('attendances.export', ['format' => 'pdf']))
+            ->assertRedirect()
+            ->assertSessionHasErrors('format');
+
+        $this->actingAs($this->admin)
+            ->get(route('attendances.export', [
+                'date_from' => '2026-10-20',
+                'date_to' => '2026-10-01',
+            ]))
+            ->assertRedirect()
+            ->assertSessionHasErrors('date_to');
+
+        $this->actingAs($this->admin)
+            ->get(route('attendances.export', ['status' => 'status-tidak-dikenal']))
+            ->assertRedirect()
+            ->assertSessionHasErrors('status');
+
+        $this->actingAs($this->admin)
+            ->get(route('attendances.export', ['month' => '2026-1']))
+            ->assertRedirect()
+            ->assertSessionHasErrors('month');
+
+        $this->actingAs($this->admin)
+            ->get(route('attendances.export', ['date' => '2026-10-32']))
+            ->assertRedirect()
+            ->assertSessionHasErrors('date');
+    }
+
     public function test_admin_can_view_student_monthly_pdf_report(): void
     {
         $month = '2026-10';

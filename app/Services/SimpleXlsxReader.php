@@ -12,6 +12,20 @@ use ZipArchive;
 class SimpleXlsxReader
 {
     /**
+     * Batas ukuran XML yang didekompresi dari satu entri XLSX (byte).
+     * Mencegah zip bomb: berkas 5 MB bisa mengembang menjadi ratusan MB.
+     */
+    private const MAX_ENTRY_BYTES = 52428800;
+
+    /**
+     * Batas jumlah baris dan kolom yang dibaca. Template import hanya memakai
+     * sembilan kolom; batas ini menjaga pemakaian memori tetap wajar.
+     */
+    private const MAX_ROWS = 50000;
+
+    private const MAX_COLUMNS = 100;
+
+    /**
      * Membaca file .xlsx dan mengembalikan array 2D [baris][kolom].
      *
      * @return array<int, array<int, string>>
@@ -27,8 +41,26 @@ class SimpleXlsxReader
             throw new RuntimeException('Gagal membuka file XLSX sebagai ZipArchive.');
         }
 
+        try {
+            return self::readArchive($zip);
+        } finally {
+            $zip->close();
+        }
+    }
+
+    /**
+     * @return array<int, array<int, string>>
+     */
+    private static function readArchive(ZipArchive $zip): array
+    {
         // 1. Baca shared strings jika ada (xl/sharedStrings.xml)
         $sharedStrings = [];
+        $sharedStat = $zip->statName('xl/sharedStrings.xml');
+
+        if ($sharedStat !== false && (int) ($sharedStat['size'] ?? 0) > self::MAX_ENTRY_BYTES) {
+            throw new RuntimeException('Isi file XLSX terlalu besar untuk diproses.');
+        }
+
         $sharedXmlContent = $zip->getFromName('xl/sharedStrings.xml');
         if ($sharedXmlContent !== false) {
             $sXml = @simplexml_load_string($sharedXmlContent);
@@ -48,18 +80,26 @@ class SimpleXlsxReader
         }
 
         // 2. Baca worksheet pertama (xl/worksheets/sheet1.xml atau fallback)
+        $sheetStat = $zip->statName('xl/worksheets/sheet1.xml');
+
+        if ($sheetStat !== false && (int) ($sheetStat['size'] ?? 0) > self::MAX_ENTRY_BYTES) {
+            throw new RuntimeException('Isi file XLSX terlalu besar untuk diproses.');
+        }
+
         $sheetXmlContent = $zip->getFromName('xl/worksheets/sheet1.xml');
         if ($sheetXmlContent === false) {
             for ($i = 0; $i < $zip->numFiles; $i++) {
                 $stat = $zip->statIndex($i);
                 if ($stat && preg_match('#xl/worksheets/sheet\d+\.xml#i', $stat['name'])) {
+                    if ((int) ($stat['size'] ?? 0) > self::MAX_ENTRY_BYTES) {
+                        throw new RuntimeException('Isi file XLSX terlalu besar untuk diproses.');
+                    }
+
                     $sheetXmlContent = $zip->getFromIndex($i);
                     break;
                 }
             }
         }
-
-        $zip->close();
 
         if ($sheetXmlContent === false) {
             throw new RuntimeException('Tidak ditemukan lembar kerja (worksheet) dalam file XLSX.');
@@ -72,12 +112,20 @@ class SimpleXlsxReader
 
         $rows = [];
         foreach ($sheetXml->sheetData->row as $rowNode) {
+            if (count($rows) >= self::MAX_ROWS) {
+                throw new RuntimeException('Jumlah baris file XLSX melebihi batas yang dapat diproses.');
+            }
+
             $rowCells = [];
             $maxColIndex = -1;
 
             foreach ($rowNode->c as $cell) {
                 $ref = (string) $cell['r']; // e.g. "A1", "C2"
                 $colIndex = self::columnLetterToIndex($ref);
+
+                if ($colIndex >= self::MAX_COLUMNS) {
+                    throw new RuntimeException('Jumlah kolom file XLSX melebihi batas yang dapat diproses.');
+                }
 
                 $type = (string) ($cell['t'] ?? '');
                 $val = '';

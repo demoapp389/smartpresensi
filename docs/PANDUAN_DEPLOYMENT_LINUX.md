@@ -612,8 +612,9 @@ Lalu:
 ## 9. Backup, restore, dan update
 
 **Backup dari aplikasi:** buka menu backup/Pusat Kontrol Sistem -> **Unduh Dump SQL**.
-Backup ini dibuat oleh PHP dan berjalan lintas platform. Kolom password dan token sengaja
-dikosongkan pada dump.
+Backup ini dibuat oleh PHP dan berjalan lintas platform. Tabel sesi/token tidak diikutkan,
+dan kolom rahasia (`users.password`, `users.remember_token`, `fingerprint_devices.secret_token`)
+sengaja dikosongkan pada dump.
 
 **Backup manual:**
 
@@ -623,9 +624,51 @@ mysqldump -u smartpresensi -p absensi_siswa > /home/admin/backup_absensi_$(date 
 
 **Restore manual:**
 
-```bash
-mysql -u smartpresensi -p absensi_siswa < /home/admin/backup_absensi_2026-01-01.sql
-```
+1. Hentikan layanan agar tidak ada penulisan selama restore.
+
+   ```bash
+   sudo systemctl stop smartpresensi-worker smartpresensi-worker-long \
+     smartpresensi-scheduler solutionx601-connector
+   ```
+
+2. Restore database. Untuk dump dari menu aplikasi, lanjutkan ke langkah 3 karena
+   password admin dan token perangkat kosong. Untuk `mysqldump` manual, langkah 3-5
+   tetap aman dijalankan.
+
+   ```bash
+   mysql -u smartpresensi -p absensi_siswa < /home/admin/backup_absensi_2026-01-01.sql
+   ```
+
+3. Jalankan migrasi yang mungkin belum ada di dump, lalu bangun ulang cache produksi.
+
+   ```bash
+   cd /var/www/smartpresensi
+   sudo -u www-data php8.3 artisan migrate --force
+   sudo -u www-data php8.3 artisan optimize:clear
+   sudo -u www-data php8.3 artisan optimize
+   ```
+
+4. Bila memakai dump dari menu aplikasi, buat ulang akun admin (password lama tidak
+   ikut ter-backup).
+
+   ```bash
+   sudo -u www-data php8.3 artisan sp:create-admin \
+     --name="Administrator Sekolah" \
+     --email="admin@sekolah.sch.id" \
+     --password="KataSandiKuat123"
+   ```
+
+5. Buat ulang token perangkat fingerprint dari menu **Manajemen Perangkat** (token lama
+   tidak ikut ter-backup), lalu perbarui `CONNECTOR_DEVICE_TOKEN`/token mesin di
+   konfigurasi connector. Tanpa langkah ini ingest akan ditolak dengan HTTP 403.
+
+6. Nyalakan kembali layanan.
+
+   ```bash
+   sudo systemctl start smartpresensi-worker smartpresensi-worker-long \
+     smartpresensi-scheduler solutionx601-connector
+   sudo -u www-data php8.3 artisan queue:restart
+   ```
 
 **Update aplikasi:**
 

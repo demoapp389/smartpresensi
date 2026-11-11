@@ -1,6 +1,6 @@
 # Audit SmartPresensi
 
-**Status terakhir:** 10 November 2026
+**Status terakhir:** 11 November 2026
 **Dokumen ini adalah satu-satunya sumber status audit di repositori.**
 Dokumen audit lama sudah diringkas ke sini lalu dihapus agar tidak menjadi sumber informasi yang bertentangan.
 
@@ -98,6 +98,16 @@ Dokumen audit lama sudah diringkas ke sini lalu dihapus agar tidak menjadi sumbe
   sistem"), dan halaman Outbox menyembunyikan `held`/`cancelled` kecuali difilter.
 - `app:preflight` memberi peringatan bila `audit_logs` > 100.000 atau
   `notification_logs` > 50.000 baris.
+
+## Perbaikan Batch Audit (11 November 2026)
+
+- **Auto-Alpa:** fallback NIS berlaku untuk semua status log yang memblokir, termasuk log tanpa `device_id`; keputusan `unknown` dari validasi Fonnte tidak lagi menurunkan wali yang sedang `valid`.
+- **Keamanan:** `secret_token` perangkat disembunyikan dari serialisasi, token kosong ditolak, dan rate limit ingest dikunci per IP (bukan token yang bisa diputar). `source_key` ingest selalu dihitung ulang di server agar deduplikasi tidak bisa dilewati.
+- **Absensi:** query `school_date` memakai rentang sargable, retry deadlock dilakukan di transaksi terluar, dan hanya pelanggaran unique yang dianggap balapan insert.
+- **WhatsApp:** siaran memakai `ShouldBeUnique` + lock per baris outbox; status akhir (`sent`/`delivered`/`read`/`cancelled`) tidak bisa ditimpa retry atau `failed()`.
+- **Operasional:** log `laravel*.log` dirotasi dan dihapus setelah 14 hari, `queue:prune-failed` harian, rekonsiliasi tanpa tumpang tindih, serta buffer/state connector per-mesin ikut dipangkas.
+- **Validasi:** ingest menolak ID/waktu/`source_key` yang tidak valid atau terlalu panjang; impor XLSX dibatasi ukuran dekompresi, jumlah baris, dan kolom; ekspor presensi memvalidasi tanggal, filter, dan format serta dibatasi throttle.
+- **Deployment:** template `.env` memuat `WA_META_APP_SECRET`; panduan Linux menjelaskan prosedur restore, pembuatan ulang admin, dan token perangkat setelah restore dump aplikasi.
 
 ## Tindakan yang Sudah Diverifikasi
 
