@@ -111,33 +111,38 @@
             </div>
         </div>
 
-        {{-- Filter dijalankan di server; hanya satu halaman data yang dimuat. --}}
-        <form id="student-class-filter" method="GET" action="{{ route('students.index') }}" class="flex flex-wrap items-center gap-1.5 text-xs">
+        {{-- Toolbar: filter di kiri, pencarian di kanan (gaya DataTables). --}}
+        <form id="student-class-filter" method="GET" action="{{ route('students.index') }}"
+            class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-4 py-3 text-xs">
             @if($status === 'trashed')
                 <input type="hidden" name="status" value="trashed">
             @endif
-            <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5">
-                <svg class="size-3.5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
-                <label for="student_search" class="sr-only">Cari siswa</label>
-                <input type="search" id="student_search" name="search" value="{{ $search }}" placeholder="Cari nama, NIS, atau NISN…"
-                    class="h-full w-40 bg-transparent text-xs text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none">
+
+            <div class="flex flex-wrap items-center gap-1.5">
+                <select name="class_id" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
+                    <option value="">Semua Kelas</option>
+                    @foreach($classes as $c)
+                        <option value="{{ $c->id }}" {{ $classId == $c->id ? 'selected' : '' }}>{{ $c->name }}</option>
+                    @endforeach
+                </select>
+                @if($classId || $search)
+                    <a href="{{ route('students.index', $status === 'trashed' ? ['status' => 'trashed'] : []) }}"
+                        class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
+                        Reset
+                    </a>
+                @endif
             </div>
-            <button type="submit"
-                class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
-                Cari
-            </button>
-            <select name="class_id" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
-                <option value="">Semua Kelas</option>
-                @foreach($classes as $c)
-                    <option value="{{ $c->id }}" {{ $classId == $c->id ? 'selected' : '' }}>{{ $c->name }}</option>
-                @endforeach
-            </select>
-            @if($classId || $search)
-                <a href="{{ route('students.index', $status === 'trashed' ? ['status' => 'trashed'] : []) }}"
-                    class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
-                    Reset
-                </a>
-            @endif
+
+            <div class="relative w-[220px] max-w-full">
+                <svg class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 16 16">
+                    <circle cx="7" cy="7" r="5" stroke-width="1.5"/>
+                    <path d="M11 11l3.5 3.5" stroke-width="1.5"/>
+                </svg>
+                <label for="student_search" class="sr-only">Cari siswa</label>
+                <input type="search" id="student_search" name="search" value="{{ $search }}" placeholder="Cari…"
+                    data-auto-submit-search
+                    class="h-8 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--body-bg)] pl-8 pr-2.5 text-[13px] text-[var(--text)] outline-none transition focus:border-[var(--primary-accessible)] focus:ring-2 focus:ring-[var(--primary-soft)]">
+            </div>
         </form>
 
         <!-- Bulk Action Bar -->

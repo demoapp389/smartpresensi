@@ -62,35 +62,38 @@
         </div>
     </div>
 
-    {{-- Filter dan paginasi dijalankan di server; hanya satu halaman data dimuat. --}}
-    <form id="guardian-filter" method="GET" action="{{ route('guardians.validation') }}" class="flex flex-wrap items-center gap-2 text-xs">
-        <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5">
-            <svg class="size-3.5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
-            <label for="guardian_search" class="sr-only">Cari wali atau siswa</label>
-            <input type="search" id="guardian_search" name="search" value="{{ $search }}" placeholder="Cari nama wali, nomor, atau siswa…"
-                class="h-full w-52 bg-transparent text-xs text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none">
-        </div>
-        <button type="submit"
-            class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
-            Cari
-        </button>
-        <select name="status" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary)] focus:outline-none cursor-pointer">
-            <option value="">Semua Status</option>
-            <option value="valid" {{ $status === 'valid' ? 'selected' : '' }}>Valid</option>
-            <option value="pending" {{ $status === 'pending' ? 'selected' : '' }}>Pending</option>
-            <option value="invalid" {{ $status === 'invalid' ? 'selected' : '' }}>Invalid</option>
-            <option value="unknown" {{ $status === 'unknown' ? 'selected' : '' }}>Unknown</option>
-        </select>
-
-        @if($status || $search)
-            <a href="{{ route('guardians.validation') }}" class="inline-flex items-center justify-center h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
-                Reset
-            </a>
-        @endif
-    </form>
-
-    {{-- Tabel --}}
+    {{-- Tabel dengan toolbar: filter di kiri, pencarian di kanan (gaya DataTables). --}}
     <section class="min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)] overflow-hidden">
+        <form id="guardian-filter" method="GET" action="{{ route('guardians.validation') }}"
+            class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-4 py-3 text-xs">
+            <div class="flex flex-wrap items-center gap-2">
+                <select name="status" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary)] focus:outline-none cursor-pointer">
+                    <option value="">Semua Status</option>
+                    <option value="valid" {{ $status === 'valid' ? 'selected' : '' }}>Valid</option>
+                    <option value="pending" {{ $status === 'pending' ? 'selected' : '' }}>Pending</option>
+                    <option value="invalid" {{ $status === 'invalid' ? 'selected' : '' }}>Invalid</option>
+                    <option value="unknown" {{ $status === 'unknown' ? 'selected' : '' }}>Unknown</option>
+                </select>
+
+                @if($status || $search)
+                    <a href="{{ route('guardians.validation') }}" class="inline-flex items-center justify-center h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
+                        Reset
+                    </a>
+                @endif
+            </div>
+
+            <div class="relative w-[220px] max-w-full">
+                <svg class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 16 16">
+                    <circle cx="7" cy="7" r="5" stroke-width="1.5"/>
+                    <path d="M11 11l3.5 3.5" stroke-width="1.5"/>
+                </svg>
+                <label for="guardian_search" class="sr-only">Cari wali atau siswa</label>
+                <input type="search" id="guardian_search" name="search" value="{{ $search }}" placeholder="Cari…"
+                    data-auto-submit-search
+                    class="h-8 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--body-bg)] pl-8 pr-2.5 text-[13px] text-[var(--text)] outline-none transition focus:border-[var(--primary-accessible)] focus:ring-2 focus:ring-[var(--primary-soft)]">
+            </div>
+        </form>
+
         <div class="overflow-x-auto">
             <table class="min-w-[700px] w-full text-left text-xs">
                 <thead class="bg-[var(--surface-secondary)] text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider border-b border-[var(--border-subtle)]">

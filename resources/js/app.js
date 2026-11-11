@@ -80,6 +80,26 @@ window.addEventListener('toast', (e) => {
     }
 });
 
+// Pencarian server-side: kirim form setelah pengguna berhenti mengetik,
+// meniru perilaku kotak pencarian DataTables tanpa memuat semua baris.
+let searchSubmitTimer = null;
+
+document.addEventListener('input', (event) => {
+    const input = event.target.closest('[data-auto-submit-search]');
+    if (!input || !input.form) {
+        return;
+    }
+
+    clearTimeout(searchSubmitTimer);
+    searchSubmitTimer = setTimeout(() => {
+        if (input.isConnected) {
+            input.form.requestSubmit();
+        }
+    }, 450);
+});
+
+document.addEventListener('submit', () => clearTimeout(searchSubmitTimer));
+
 // Dialog konfirmasi: pengganti confirm() bawaan browser (Alpine + Tailwind).
 //
 // ask() mengembalikan Promise<boolean> sehingga pemanggil dapat menunggu
