@@ -112,7 +112,7 @@ Dokumen audit lama sudah diringkas ke sini lalu dihapus agar tidak menjadi sumbe
 - **Webhook:** rahasia bersama tidak lagi diterima dari query string `?token=`; hanya header atau body request.
 - **Operasional:** unit systemd worker/scheduler memakai `MemoryMax` dan batas restart; scheduler menjalankan `db:backup` harian dengan checksum SHA-256 dan retensi 14 hari; baris offline buffer yang dibuang diarsipkan sebelum dihapus.
 - **Dependensi:** `laravel/tinker` dipindah ke `require-dev` agar tidak terpasang pada deployment produksi tanpa dev dependency.
-- **UI:** breadcrumb hanya dirender sekali di topbar (tidak lagi digandakan di header halaman), dropdown jumlah baris tetap dipertahankan, opsi filter status raw log tidak lagi duplikat, dan label DataTables diseragamkan ke bahasa Indonesia.
+- **UI:** breadcrumb hanya dirender di area konten (topbar tanpa breadcrumb), dropdown jumlah baris tetap dipertahankan, opsi filter status raw log tidak lagi duplikat, dan label DataTables diseragamkan ke bahasa Indonesia.
 
 ## Tindakan yang Sudah Diverifikasi
 

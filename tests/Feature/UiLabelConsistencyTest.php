@@ -21,6 +21,13 @@ class UiLabelConsistencyTest extends TestCase
 
         $this->assertSame(1, substr_count($html, 'aria-label="Breadcrumb"'));
         $this->assertStringContainsString('Data Kehadiran', $html);
+
+        $mainPosition = strpos($html, '<main');
+        $breadcrumbPosition = strpos($html, 'aria-label="Breadcrumb"');
+
+        $this->assertNotFalse($mainPosition);
+        $this->assertNotFalse($breadcrumbPosition);
+        $this->assertGreaterThan($mainPosition, $breadcrumbPosition);
     }
 
     public function test_server_paginated_table_keeps_single_per_page_dropdown(): void

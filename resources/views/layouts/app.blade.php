@@ -110,17 +110,6 @@
                             class="inline-flex size-8.5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--border-subtle)] focus-visible:outline-2 focus-visible:outline-[var(--primary-accessible)] transition-colors">
                         <svg class="size-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
                     </button>
-
-                    <!-- Breadcrumb Navigation (satu-satunya label breadcrumb halaman) -->
-                    <nav aria-label="Breadcrumb" class="hidden sm:flex items-center text-[13px] text-[var(--text-secondary)] font-normal gap-1.5 truncate">
-                        @hasSection('breadcrumb')
-                            @yield('breadcrumb')
-                        @else
-                            <a href="{{ route('dashboard') }}" class="hover:text-[var(--text)] transition-colors">Beranda</a>
-                            <span class="text-[var(--text-muted)]">/</span>
-                            <span class="font-medium text-[var(--text)] truncate">@yield('title', 'Dashboard')</span>
-                        @endif
-                    </nav>
                 </div>
 
                 <!-- Right Topbar Controls -->
@@ -277,6 +266,11 @@
                             <div class="flex items-center gap-2 flex-wrap">
                                 @yield('page-actions')
                             </div>
+                        @endif
+                        @hasSection('breadcrumb')
+                            <nav aria-label="Breadcrumb" class="flex flex-wrap items-center gap-1.5 text-[12px] text-[var(--text-muted)]">
+                                @yield('breadcrumb')
+                            </nav>
                         @endif
                     </div>
                 </div>
