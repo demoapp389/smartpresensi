@@ -16,6 +16,7 @@ use App\Services\AttendanceProcessingService;
 use App\Services\FingerprintIngestService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 class SchedulePeriodTest extends TestCase
@@ -217,6 +218,53 @@ class SchedulePeriodTest extends TestCase
             ->assertSessionHasErrors('start_date');
 
         $this->assertSame(1, SchedulePeriod::count());
+    }
+
+    public function test_resolved_schedule_is_readable_from_serializing_cache_store(): void
+    {
+        // Meniru produksi: store yang men-serialize nilai (database/file) dan
+        // cache.serializable_classes = false. Objek model yang disimpan ke
+        // cache akan kembali sebagai __PHP_Incomplete_Class.
+        config([
+            'cache.default' => 'file',
+            'cache.stores.file.path' => storage_path('framework/testing/cache'),
+            'cache.serializable_classes' => false,
+        ]);
+        app('cache')->purge('file');
+        Cache::store('file')->flush();
+
+        $this->createRegularSchedule(3, '07:00:00', '07:15:00');
+
+        $date = Carbon::parse('2026-03-11 09:00:00', 'Asia/Jakarta');
+
+        // Panggilan pertama menulis cache, panggilan kedua membacanya kembali.
+        $first = SchoolSchedule::resolveForDate($date);
+        $second = SchoolSchedule::resolveForDate($date);
+
+        $this->assertInstanceOf(SchoolSchedule::class, $first);
+        $this->assertInstanceOf(SchoolSchedule::class, $second);
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame('07:00:00', $second->start_at);
+    }
+
+    public function test_absent_schedule_is_cached_without_breaking_resolution(): void
+    {
+        config([
+            'cache.default' => 'file',
+            'cache.stores.file.path' => storage_path('framework/testing/cache'),
+            'cache.serializable_classes' => false,
+        ]);
+        app('cache')->purge('file');
+        Cache::store('file')->flush();
+
+        $this->createRegularSchedule(3, '07:00:00', '07:15:00');
+
+        // 2026-03-15 adalah hari Minggu: tidak ada jadwal.
+        $date = Carbon::parse('2026-03-15 09:00:00', 'Asia/Jakarta');
+
+        $this->assertNull(SchoolSchedule::resolveForDate($date));
+        $this->assertNull(SchoolSchedule::resolveForDate($date));
+        $this->assertNotNull(SchoolSchedule::resolveForDate(Carbon::parse('2026-03-11 09:00:00', 'Asia/Jakarta')));
     }
 
     private function createRegularSchedule(

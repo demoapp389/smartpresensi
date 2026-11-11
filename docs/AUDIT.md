@@ -55,6 +55,10 @@ Dokumen audit lama sudah diringkas ke sini lalu dihapus agar tidak menjadi sumbe
   pagination server-side; ekspor presensi mengalirkan baris per chunk.
 - Tren dashboard diagregasi di SQL, jadwal sekolah di-cache singkat, dan query sidebar
   dipindah ke view composer agar tidak diulang tiap halaman.
+- Cache jadwal hanya menyimpan ID jadwal (skalar), bukan objek model. Dengan
+  `cache.serializable_classes = false`, objek yang tersimpan di store yang men-serialize
+  (database/file/redis) kembali sebagai `__PHP_Incomplete_Class` sehingga pemrosesan
+  log gagal dan halaman laporan error 500.
 - Indeks `attendances.check_out_status` dan `audit_logs.created_at` ditambahkan.
 - Aset font eksternal Google Fonts dihapus agar render tidak menunggu jaringan.
 

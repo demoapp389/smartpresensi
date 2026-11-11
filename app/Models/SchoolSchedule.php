@@ -76,21 +76,30 @@ class SchoolSchedule extends Model
     /**
      * Jadwal yang berlaku pada tanggal tertentu. Jadwal khusus pada periode
      * yang mencakup tanggal tersebut menimpa jadwal reguler.
+     *
+     * Cache hanya menyimpan ID jadwal (skalar), bukan objek model: karena
+     * `cache.serializable_classes` bernilai false, objek yang disimpan ke
+     * cache akan kembali sebagai __PHP_Incomplete_Class di store yang
+     * men-serialize nilai (database/file/redis).
      */
     public static function resolveForDate(CarbonInterface $date): ?self
     {
         $dateKey = $date->toDateString();
         $version = (int) Cache::get('school-schedule:version', 0);
 
-        return Cache::remember(
-            "school-schedule:resolved:{$version}:{$dateKey}",
+        // 0 dipakai sebagai penanda "tidak ada jadwal" agar null tidak
+        // dianggap cache miss dan query diulang terus-menerus.
+        $scheduleId = (int) Cache::remember(
+            "school-schedule:resolved-id:{$version}:{$dateKey}",
             now()->addMinute(),
-            fn (): ?self => static::resolveFrom(
+            fn (): int => (int) (static::resolveFrom(
                 $date,
                 static::query()->get(),
                 SchedulePeriod::query()->where('is_active', true)->get(),
-            ),
+            )?->id ?? 0),
         );
+
+        return $scheduleId > 0 ? static::find($scheduleId) : null;
     }
 
     /**
