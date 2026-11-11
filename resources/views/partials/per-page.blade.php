@@ -17,9 +17,10 @@
             @endif
         @endforeach
 
-        <span class="text-xs text-[var(--text-muted)]">Menampilkan</span>
+        <label for="{{ $selectId }}" class="text-xs text-[var(--text-muted)]">Menampilkan</label>
 
         <select id="{{ $selectId }}" name="per_page" onchange="this.form.submit()"
+            aria-label="Jumlah baris per halaman"
             class="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)] focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]">
             @foreach ($perPageOptions as $perPageOption)
                 <option value="{{ $perPageOption }}" @selected($currentPerPage === $perPageOption)>

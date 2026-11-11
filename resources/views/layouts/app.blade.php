@@ -111,11 +111,15 @@
                         <svg class="size-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
                     </button>
 
-                    <!-- Breadcrumb Navigation -->
+                    <!-- Breadcrumb Navigation (satu-satunya label breadcrumb halaman) -->
                     <nav aria-label="Breadcrumb" class="hidden sm:flex items-center text-[13px] text-[var(--text-secondary)] font-normal gap-1.5 truncate">
-                        <a href="{{ route('dashboard') }}" class="hover:text-[var(--text)] transition-colors">Beranda</a>
-                        <span class="text-[var(--text-muted)]">/</span>
-                        <span class="font-medium text-[var(--text)] truncate">@yield('title', 'Dashboard')</span>
+                        @hasSection('breadcrumb')
+                            @yield('breadcrumb')
+                        @else
+                            <a href="{{ route('dashboard') }}" class="hover:text-[var(--text)] transition-colors">Beranda</a>
+                            <span class="text-[var(--text-muted)]">/</span>
+                            <span class="font-medium text-[var(--text)] truncate">@yield('title', 'Dashboard')</span>
+                        @endif
                     </nav>
                 </div>
 
@@ -273,11 +277,6 @@
                             <div class="flex items-center gap-2 flex-wrap">
                                 @yield('page-actions')
                             </div>
-                        @endif
-                        @hasSection('breadcrumb')
-                            <nav aria-label="Breadcrumb" class="flex flex-wrap items-center gap-1.5 text-[12px] text-[var(--text-muted)]">
-                                @yield('breadcrumb')
-                            </nav>
                         @endif
                     </div>
                 </div>

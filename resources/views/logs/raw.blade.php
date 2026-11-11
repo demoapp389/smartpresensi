@@ -102,13 +102,11 @@
             <option value="needs_review" {{ $status === 'needs_review' ? 'selected' : '' }}>Perlu Tinjauan Waktu</option>
             <option value="time_rejected" {{ $status === 'time_rejected' ? 'selected' : '' }}>Ditolak (Waktu)</option>
             <option value="unmapped" {{ $status === 'unmapped' ? 'selected' : '' }}>Unmapped</option>
-            <option value="failed" {{ $status === 'failed' ? 'selected' : '' }}>Gagal Diproses</option>
+            <option value="failed" {{ $status === 'failed' ? 'selected' : '' }}>Gagal Permanen</option>
             <option value="dismissed" {{ $status === 'dismissed' ? 'selected' : '' }}>Dibersihkan (PIN Sudah Dipetakan)</option>
             <option value="inactive_student" {{ $status === 'inactive_student' ? 'selected' : '' }}>Siswa Terhapus</option>
             <option value="ignored" {{ $status === 'ignored' ? 'selected' : '' }}>Ignored (Duplikat)</option>
             <option value="rejected" {{ $status === 'rejected' ? 'selected' : '' }}>Ditolak (Di Luar Jendela)</option>
-            <option value="unprocessed" {{ $status === 'unprocessed' ? 'selected' : '' }}>Unprocessed</option>
-            <option value="failed" {{ $status === 'failed' ? 'selected' : '' }}>Gagal Permanen (Perlu Retry)</option>
         </select>
 
         @if($isFiltered)
@@ -205,7 +203,7 @@
                                 </span>
                             @else
                                 <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                                    Unprocessed
+                                    Belum Diproses
                                 </span>
                             @endif
                         </td>

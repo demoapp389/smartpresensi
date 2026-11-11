@@ -102,12 +102,13 @@ export async function initTables() {
             language: {
                 search: '',
                 searchPlaceholder: 'Cari…',
-                info: 'Total _TOTAL_ entri',
-                infoEmpty: 'Total 0 entri',
-                infoFiltered: '(disaring dari _MAX_ total entri)',
+                processing: 'Memuat…',
+                info: 'Menampilkan _START_–_END_ dari _TOTAL_ data',
+                infoEmpty: 'Menampilkan 0 dari 0 data',
+                infoFiltered: '(disaring dari _MAX_ total data)',
                 zeroRecords: table.dataset.emptyMessage || 'Tidak ditemukan data yang cocok',
                 emptyTable: table.dataset.emptyMessage || 'Belum ada data',
-                lengthMenu: 'Tampilkan _MENU_',
+                lengthMenu: 'Tampilkan _MENU_ data',
                 paginate: { previous: '←', next: '→' }
             }
         };
@@ -145,7 +146,12 @@ export async function initTables() {
 
         const searchInput = table.closest('.dt-container')?.querySelector('.dt-search input');
         if (searchInput && !searchInput.hasAttribute('aria-label')) {
-            searchInput.setAttribute('aria-label', 'Search table');
+            searchInput.setAttribute('aria-label', 'Cari dalam tabel');
+        }
+
+        const lengthSelect = table.closest('.dt-container')?.querySelector('.dt-length select');
+        if (lengthSelect && !lengthSelect.hasAttribute('aria-label')) {
+            lengthSelect.setAttribute('aria-label', 'Jumlah baris per halaman');
         }
     });
 }
@@ -262,7 +268,7 @@ function wireRowSelection(table, dt) {
         headerCb.indeterminate = checked > 0 && checked < rowCbs.length;
         table.classList.toggle('has-selection', checked > 0);
         const counter = table.closest('.card')?.querySelector('.bulk-selection-count');
-        if (counter) {counter.textContent = checked ? `${checked} selected` : '';}
+        if (counter) {counter.textContent = checked ? `${checked} dipilih` : '';}
     };
 
     if (headerCb) {
@@ -297,7 +303,7 @@ function ensureExportButton(table) {
     btn.type = 'button';
     btn.className = 'btn btn-outline btn-sm';
     btn.setAttribute('data-export-btn', '');
-    btn.textContent = 'Export CSV';
+    btn.textContent = 'Ekspor CSV';
 
     let actions = header.querySelector('.card-actions');
     if (!actions) {
@@ -370,7 +376,7 @@ function wireCsvExport(table, dt) {
         }
 
         downloadFile(filename, rows.join('\n'), 'text/csv;charset=utf-8;');
-        window.toast?.(`Exported ${filename}`, 'success');
+        window.toast?.(`CSV diekspor: ${filename}`, 'success');
     });
 }
 

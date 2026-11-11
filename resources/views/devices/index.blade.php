@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
 @section('title', 'Mesin Fingerprint')
-@section('page-pretitle', 'Mesin Fingerprint')
+@section('page-pretitle', 'Perangkat & Integrasi')
 @section('page-title', 'Mesin Fingerprint')
 @section('page-subtitle', 'Terminal Solution X601 yang terhubung ke jaringan sekolah')
 
