@@ -14,7 +14,8 @@ class User extends Authenticatable
     use HasFactory, Notifiable;
 
     protected $attributes = [
-        'role' => 'admin',
+        // Least privilege: akun yang dibuat tanpa role eksplisit bukan admin.
+        'role' => 'operator',
         'is_active' => true,
     ];
 

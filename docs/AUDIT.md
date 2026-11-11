@@ -108,6 +108,10 @@ Dokumen audit lama sudah diringkas ke sini lalu dihapus agar tidak menjadi sumbe
 - **Operasional:** log `laravel*.log` dirotasi dan dihapus setelah 14 hari, `queue:prune-failed` harian, rekonsiliasi tanpa tumpang tindih, serta buffer/state connector per-mesin ikut dipangkas.
 - **Validasi:** ingest menolak ID/waktu/`source_key` yang tidak valid atau terlalu panjang; impor XLSX dibatasi ukuran dekompresi, jumlah baris, dan kolom; ekspor presensi memvalidasi tanggal, filter, dan format serta dibatasi throttle.
 - **Deployment:** template `.env` memuat `WA_META_APP_SECRET`; panduan Linux menjelaskan prosedur restore, pembuatan ulang admin, dan token perangkat setelah restore dump aplikasi.
+- **Least privilege:** role default akun baru menjadi `operator` (model dan default kolom database); factory test tetap eksplisit `admin`.
+- **Webhook:** rahasia bersama tidak lagi diterima dari query string `?token=`; hanya header atau body request.
+- **Operasional:** unit systemd worker/scheduler memakai `MemoryMax` dan batas restart; scheduler menjalankan `db:backup` harian dengan checksum SHA-256 dan retensi 14 hari; baris offline buffer yang dibuang diarsipkan sebelum dihapus.
+- **Dependensi:** `laravel/tinker` dipindah ke `require-dev` agar tidak terpasang pada deployment produksi tanpa dev dependency.
 
 ## Tindakan yang Sudah Diverifikasi
 

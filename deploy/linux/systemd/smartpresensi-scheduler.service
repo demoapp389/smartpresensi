@@ -3,6 +3,9 @@ Description=SmartPresensi Laravel Scheduler
 Documentation=file:///var/www/smartpresensi/docs/PANDUAN_DEPLOYMENT_LINUX.md
 After=network-online.target mysql.service
 Wants=network-online.target
+# Hentikan loop restart saat scheduler terus gagal/OOM.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -23,6 +26,8 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
 RestrictRealtime=true
+# Batas memori agar scheduler tidak menghabiskan RAM server.
+MemoryMax=1G
 StandardOutput=append:/var/www/smartpresensi/storage/logs/scheduler.log
 StandardError=append:/var/www/smartpresensi/storage/logs/scheduler.log
 

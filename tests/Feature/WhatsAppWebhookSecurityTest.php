@@ -68,6 +68,16 @@ class WhatsAppWebhookSecurityTest extends TestCase
         ])->assertStatus(200);
     }
 
+    public function test_handle_rejects_shared_secret_in_query_string(): void
+    {
+        config()->set('whatsapp.webhook_secret', 'shared-pass');
+
+        $this->postJson(
+            route('api.whatsapp.webhook.handle', ['token' => 'shared-pass']),
+            ['id' => '1', 'status' => 'delivered'],
+        )->assertStatus(403);
+    }
+
     public function test_handle_rejects_when_no_secret_is_configured(): void
     {
         $this->postJson(route('api.whatsapp.webhook.handle'), ['id' => 'unknown-id', 'status' => 'delivered'])

@@ -166,8 +166,9 @@ class WhatsAppWebhookController extends Controller
      * Verifikasi asal permintaan webhook (SEC-04).
      *
      * Menerima tanda tangan Meta (X-Hub-Signature-256) bila app secret diisi,
-     * atau rahasia bersama untuk gateway generik (Fonnte):
-     * header X-Webhook-Token/X-Webhook-Secret, query ?token=, atau field payload.
+     * atau rahasia bersama untuk gateway generik (Fonnte) lewat header
+     * X-Webhook-Token/X-Webhook-Secret atau field payload. Query string sengaja
+     * tidak diterima karena rahasia di URL mudah bocor ke access log.
      * Fail-closed: bila tidak ada rahasia terkonfigurasi, semua permintaan ditolak.
      */
     private function passesOriginCheck(Request $request): bool
@@ -191,14 +192,17 @@ class WhatsAppWebhookController extends Controller
         }
 
         if ($sharedSecret !== '') {
+            // Baca hanya body request (bukan query string) agar rahasia di URL
+            // tidak pernah dianggap kredensial yang sah.
+            $body = $request->isJson() ? $request->json()->all() : $request->request->all();
+
             $candidates = [
                 $request->header('X-Webhook-Token'),
                 $request->header('X-Webhook-Secret'),
-                $request->query('token'),
-                $request->input('secret'),
-                $request->input('secret_key'),
-                $request->input('webhook_secret'),
-                $request->input('token'),
+                $body['secret'] ?? null,
+                $body['secret_key'] ?? null,
+                $body['webhook_secret'] ?? null,
+                $body['token'] ?? null,
             ];
 
             foreach ($candidates as $provided) {

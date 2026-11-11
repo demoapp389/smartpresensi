@@ -3,6 +3,9 @@ Description=SmartPresensi Laravel Long-Running Queue Worker
 Documentation=file:///var/www/smartpresensi/docs/PANDUAN_DEPLOYMENT_LINUX.md
 After=network-online.target mysql.service
 Wants=network-online.target
+# Hentikan loop restart saat worker long-running terus gagal/OOM.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -24,6 +27,8 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
 RestrictRealtime=true
+# Job impor/ekspor besar butuh ruang lebih; tetap dibatasi agar tidak OOM total.
+MemoryMax=2G
 StandardOutput=append:/var/www/smartpresensi/storage/logs/queue_worker_long_service.log
 StandardError=append:/var/www/smartpresensi/storage/logs/queue_worker_long_service.log
 

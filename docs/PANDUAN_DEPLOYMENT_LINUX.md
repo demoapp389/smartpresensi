@@ -311,6 +311,8 @@ WA_GATEWAY_PROVIDER=fonnte
 WA_FONNTE_TOKEN=token-dari-dashboard-fonnte
 SCHOOL_NAME="SMA Negeri 1"
 # Wajib bila memakai webhook status Fonnte (Cloudflare Tunnel).
+# Kirim lewat header X-Webhook-Token/X-Webhook-Secret atau field payload;
+# query string ?token= tidak diterima agar rahasia tidak bocor ke access log.
 WA_WEBHOOK_SECRET=rahasia-webhook
 ```
 
@@ -417,9 +419,11 @@ journalctl -u smartpresensi-worker-long -f
 - `smartpresensi-worker-long` melayani `long-running` (sinkronisasi mesin, impor siswa, operasi massal).
 
 > Unit systemd bawaan sudah memakai sandboxing (`NoNewPrivileges`, `PrivateTmp`,
-> `ProtectSystem=full`, `ProtectHome`, `ProtectKernelTunables`, dan sejenisnya).
-> Bila menyalin unit lama, pasang ulang dari `deploy/linux/systemd/` lalu
-> `sudo systemctl daemon-reload`.
+> `ProtectSystem=full`, `ProtectHome`, `ProtectKernelTunables`, dan sejenisnya),
+> batas memori (`MemoryMax=1G` worker biasa/scheduler, `2G` worker long-running),
+> serta `StartLimitIntervalSec`/`StartLimitBurst` agar loop restart berhenti bila
+> proses terus gagal. Bila menyalin unit lama, pasang ulang dari `deploy/linux/systemd/`
+> lalu `sudo systemctl daemon-reload`.
 
 > Sesuaikan `DB_QUEUE_RETRY_AFTER` agar lebih besar dari timeout job terpanjang. Worker
 > long-running memakai timeout `3660`, jadi `.env` memakai `3900`. Jangan memakai nilai
@@ -615,6 +619,20 @@ Lalu:
 Backup ini dibuat oleh PHP dan berjalan lintas platform. Tabel sesi/token tidak diikutkan,
 dan kolom rahasia (`users.password`, `users.remember_token`, `fingerprint_devices.secret_token`)
 sengaja dikosongkan pada dump.
+
+**Backup terjadwal:** scheduler menjalankan `db:backup` setiap hari pukul 02:30.
+Hasilnya tersimpan di `storage/app/backups/backup_<database>_<timestamp>.sql` beserta
+checksum `.sha256`, dan backup lebih tua dari 14 hari dipangkas otomatis
+(`--keep-days`, `0` = nonaktif). Verifikasi manual:
+
+```bash
+cd /var/www/smartpresensi/storage/app/backups
+sha256sum -c *.sql.sha256
+cd /var/www/smartpresensi
+sudo -u www-data php8.3 artisan db:backup --keep-days=14
+```
+
+Backup terjadwal ini bukan pengganti backup manual sebelum `migrate --force`.
 
 **Backup manual:**
 

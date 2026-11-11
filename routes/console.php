@@ -23,8 +23,12 @@ Schedule::command('fingerprint:pull-soap --sync-time --time-only')->dailyAt('05:
 // Validasi ulang berkala nomor WhatsApp wali (PRD BR-05 / Fonnte Optimization, default nonaktif di config)
 Schedule::command('whatsapp:revalidate-guardians')->daily();
 
-// Rotasi log connector/worker, pangkas offline buffer, dan bersihkan berkas state lama.
+// Rotasi log connector/worker, pangkas offline buffer (dengan arsip), dan bersihkan berkas state lama.
 Schedule::command('fingerprint:prune-resources')->dailyAt('03:30');
+
+// Backup database harian beserta checksum SHA-256. Retensi default 14 hari
+// (storage/app/backups). Backup manual sebelum migrate tetap wajib.
+Schedule::command('db:backup')->dailyAt('02:30')->withoutOverlapping(60);
 
 // Pangkas log audit dan outbox WhatsApp sesuai kebijakan retensi
 // (config/audit.php dan config/whatsapp.php).

@@ -139,6 +139,38 @@ class PruneConnectorResourcesCommandTest extends TestCase
         $this->assertFileExists($bufferPath);
     }
 
+    public function test_it_archives_discarded_buffer_lines_and_prunes_old_archives(): void
+    {
+        $bufferPath = $this->root.'/connector/offline_buffer.txt';
+        File::put($bufferPath, implode(PHP_EOL, array_map(fn ($i) => 'buffer-'.$i, range(1, 300))).PHP_EOL);
+
+        $staleArchive = $this->root.'/connector/offline_buffer.txt.discarded-20260101000000';
+        File::put($staleArchive, 'arsip-lama'.PHP_EOL);
+        touch($staleArchive, now()->subDays(30)->getTimestamp());
+
+        $this->artisan('fingerprint:prune-resources', [
+            '--logs-dir' => $this->root.'/logs',
+            '--connector-dir' => $this->root.'/connector',
+            '--buffer-keep-lines' => 5,
+            '--buffer-max-bytes' => 1,
+            '--buffer-archive-keep-days' => 14,
+        ])->assertExitCode(0);
+
+        $archives = File::glob($bufferPath.'.discarded-*');
+
+        $this->assertCount(1, $archives);
+        $this->assertFileDoesNotExist($staleArchive);
+
+        $archivedLines = file($archives[0], FILE_IGNORE_NEW_LINES);
+        $this->assertCount(295, $archivedLines);
+        $this->assertSame('buffer-1', $archivedLines[0]);
+        $this->assertSame('buffer-295', $archivedLines[294]);
+
+        $bufferLines = file($bufferPath, FILE_IGNORE_NEW_LINES);
+        $this->assertCount(5, $bufferLines);
+        $this->assertSame('buffer-296', $bufferLines[0]);
+    }
+
     public function test_it_prunes_sync_logs_older_than_retention(): void
     {
         $device = FingerprintDevice::create([
