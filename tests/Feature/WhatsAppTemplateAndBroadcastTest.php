@@ -13,6 +13,7 @@ use App\Models\WhatsAppTemplate;
 use App\Services\WhatsApp\WhatsAppManager;
 use App\Support\TaskProgressReporter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -313,6 +314,52 @@ class WhatsAppTemplateAndBroadcastTest extends TestCase
         $this->assertEquals('completed', $task->status);
         $this->assertEquals(2, $task->total);
         $this->assertEquals(2, $task->processed);
+    }
+
+    public function test_broadcast_job_skips_recipient_locked_by_another_instance(): void
+    {
+        $reporter = TaskProgressReporter::start(
+            type: 'whatsapp_broadcast',
+            label: 'Siaran Uji Kunci',
+            total: 0,
+            userId: $this->admin->id
+        );
+
+        $log = NotificationLog::create([
+            'attendance_id' => null,
+            'guardian_id' => $this->guardian1->id,
+            'event_type' => 'broadcast',
+            'idempotency_key' => 'BROADCAST_'.$reporter->uuid().'_'.$this->guardian1->id,
+            'template_name' => 'siaran_sekolah',
+            'recipient_phone' => $this->guardian1->wa_number,
+            'status' => 'queued',
+            'attempts' => 0,
+            'queued_at' => now(),
+        ]);
+
+        $lock = Cache::lock('whatsapp-broadcast:'.$log->id, 120);
+        $this->assertTrue($lock->get());
+
+        try {
+            (new SendWhatsAppBroadcastJob(
+                targetType: 'all',
+                classIds: null,
+                messageText: 'Pengumuman uji kunci pengiriman.',
+                progressUuid: $reporter->uuid(),
+                actorId: $this->admin->id
+            ))->handle(app(WhatsAppManager::class));
+        } finally {
+            $lock->release();
+        }
+
+        // Nomor yang sedang diklaim instance lain tidak dikirim ulang.
+        $this->assertSame('queued', $log->fresh()->status);
+
+        // Penerima lain tetap diproses.
+        $this->assertDatabaseHas('notification_logs', [
+            'recipient_phone' => '6281200000002',
+            'status' => 'sent',
+        ]);
     }
 
     public function test_broadcast_job_does_not_resend_when_run_twice(): void

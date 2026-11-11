@@ -203,6 +203,77 @@ class GuardianWhatsAppValidationTest extends TestCase
         ]);
     }
 
+    public function test_failed_handler_does_not_downgrade_a_final_status(): void
+    {
+        $guardian = Guardian::create([
+            'student_id' => $this->student->id,
+            'name' => 'Hasan',
+            'relationship' => 'Ayah',
+            'wa_number' => '081234567890',
+            'wa_status' => 'valid',
+            'consent_at' => now(),
+            'active' => true,
+        ]);
+
+        $attendance = Attendance::create([
+            'student_id' => $this->student->id,
+            'school_date' => Carbon::today(),
+            'status' => 'hadir',
+            'check_in_at' => now(),
+        ]);
+
+        $log = NotificationLog::create([
+            'attendance_id' => $attendance->id,
+            'guardian_id' => $guardian->id,
+            'event_type' => 'check_in',
+            'idempotency_key' => 'TEST_FAILED_FINAL_STATUS',
+            'template_name' => 'siswa_hadir_v1',
+            'recipient_phone' => $guardian->wa_number,
+            'status' => 'delivered',
+            'attempts' => 1,
+        ]);
+
+        (new SendWhatsAppNotificationJob($log->id))->failed(new \RuntimeException('timeout'));
+
+        $this->assertSame('delivered', $log->fresh()->status);
+    }
+
+    public function test_failed_handler_marks_a_queued_notification_failed(): void
+    {
+        $guardian = Guardian::create([
+            'student_id' => $this->student->id,
+            'name' => 'Hasan',
+            'relationship' => 'Ayah',
+            'wa_number' => '081234567890',
+            'wa_status' => 'valid',
+            'consent_at' => now(),
+            'active' => true,
+        ]);
+
+        $attendance = Attendance::create([
+            'student_id' => $this->student->id,
+            'school_date' => Carbon::today(),
+            'status' => 'hadir',
+            'check_in_at' => now(),
+        ]);
+
+        $log = NotificationLog::create([
+            'attendance_id' => $attendance->id,
+            'guardian_id' => $guardian->id,
+            'event_type' => 'check_in',
+            'idempotency_key' => 'TEST_FAILED_QUEUED_STATUS',
+            'template_name' => 'siswa_hadir_v1',
+            'recipient_phone' => $guardian->wa_number,
+            'status' => 'queued',
+            'attempts' => 1,
+        ]);
+
+        (new SendWhatsAppNotificationJob($log->id))->failed(new \RuntimeException('timeout'));
+
+        $this->assertSame('failed', $log->fresh()->status);
+        $this->assertStringContainsString('timeout', (string) $log->fresh()->error_message);
+    }
+
     public function test_attendance_notification_queued_only_when_guardian_is_valid(): void
     {
         Queue::fake();

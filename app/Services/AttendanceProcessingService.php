@@ -62,8 +62,12 @@ class AttendanceProcessingService
      */
     public function processLog(AttendanceLog $log, bool $allowHistorical = false): ?Attendance
     {
+        // Dua mesin bisa memproses scan pertama siswa yang sama hampir bersamaan.
+        // Laravel mengulang seluruh transaksi saat terjadi deadlock/lock timeout,
+        // sehingga batch tidak ikut gagal permanen.
         return DB::transaction(
-            fn (): ?Attendance => $this->processLogInTransaction($log, $allowHistorical)
+            fn (): ?Attendance => $this->processLogInTransaction($log, $allowHistorical),
+            3
         );
     }
 
@@ -187,8 +191,16 @@ class AttendanceProcessingService
         // Race-safe: unique index (student_id, school_date) menjamin satu baris per hari.
         // Bila dua mesin memproses scan siswa yang sama hampir bersamaan, pihak yang kalah
         // menangkap pelanggaran unique dan memakai baris milik pihak yang menang.
+        // Rentang tanggal sargable: kolom DATE dipakai utuh oleh index
+        // (student_id, school_date). `whereDate()` membungkus kolom dengan DATE()
+        // sehingga InnoDB hanya memakai prefix student_id dan mengambil gap lock
+        // yang memicu deadlock saat dua scan pertama terjadi bersamaan.
+        // Rentang juga cocok untuk driver yang menyimpan date dengan jam 00:00:00.
+        $nextSchoolDate = Carbon::parse($schoolDate)->addDay()->toDateString();
+
         $attendance = Attendance::where('student_id', $studentId)
-            ->whereDate('school_date', $schoolDate)
+            ->where('school_date', '>=', $schoolDate)
+            ->where('school_date', '<', $nextSchoolDate)
             ->lockForUpdate()
             ->first();
 
@@ -200,9 +212,17 @@ class AttendanceProcessingService
                     'status' => 'hadir',
                     'policy_version' => 'v1.0',
                 ]);
-            } catch (QueryException) {
+            } catch (QueryException $exception) {
+                // Hanya pelanggaran unique (SQLSTATE 23000) yang berarti balapan
+                // insert. Deadlock (40001) harus dilempar agar transaksi terluar
+                // diulang, bukan dianggap baris sudah ada.
+                if ($exception->getCode() !== '23000') {
+                    throw $exception;
+                }
+
                 $attendance = Attendance::where('student_id', $studentId)
-                    ->whereDate('school_date', $schoolDate)
+                    ->where('school_date', '>=', $schoolDate)
+                    ->where('school_date', '<', $nextSchoolDate)
                     ->lockForUpdate()
                     ->firstOrFail();
             }

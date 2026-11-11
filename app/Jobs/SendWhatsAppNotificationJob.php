@@ -80,7 +80,7 @@ class SendWhatsAppNotificationJob implements ShouldQueue
         }
 
         if ($notification->attendance?->is_manual_override) {
-            $notification->update([
+            $this->updateUnlessFinal($notification, [
                 'status' => 'cancelled',
                 'error_message' => 'Dibatalkan: presensi telah dikoreksi manual oleh operator.',
             ]);
@@ -93,7 +93,7 @@ class SendWhatsAppNotificationJob implements ShouldQueue
         $guardian = $notification->guardian;
         if ($guardian) {
             if (! $guardian->consent_at) {
-                $notification->update([
+                $this->updateUnlessFinal($notification, [
                     'status' => 'cancelled',
                     'error_message' => 'Wali belum menyetujui penerimaan notifikasi WhatsApp (Consent belum diberikan).',
                 ]);
@@ -103,7 +103,7 @@ class SendWhatsAppNotificationJob implements ShouldQueue
             }
 
             if ($guardian->wa_status === 'invalid') {
-                $notification->update([
+                $this->updateUnlessFinal($notification, [
                     'status' => 'cancelled',
                     'error_message' => 'Nomor WhatsApp wali tidak aktif / tidak terdaftar di aplikasi WhatsApp (invalid). Pengiriman dibatalkan tanpa mengurangi kuota.',
                 ]);
@@ -113,7 +113,7 @@ class SendWhatsAppNotificationJob implements ShouldQueue
             }
 
             if ($guardian->wa_status !== 'valid') {
-                $notification->update([
+                $this->updateUnlessFinal($notification, [
                     'status' => 'held',
                     'error_message' => 'Nomor WhatsApp wali belum berstatus valid (status saat ini: '.$guardian->wa_status.'). Pesan ditahan.',
                 ]);
@@ -129,7 +129,8 @@ class SendWhatsAppNotificationJob implements ShouldQueue
         $result = $driver->sendMessage($notification);
 
         if ($result['success']) {
-            $notification->update([
+            // Webhook bisa lebih dulu menulis delivered/read; jangan turunkan.
+            $this->updateUnlessFinal($notification, [
                 'status' => 'sent',
                 'sent_at' => now(),
                 'provider_message_id' => $result['message_id'],
@@ -140,7 +141,7 @@ class SendWhatsAppNotificationJob implements ShouldQueue
         } else {
             $isLastAttempt = $this->attempts() >= $this->tries;
 
-            $notification->update([
+            $this->updateUnlessFinal($notification, [
                 'status' => $isLastAttempt ? 'failed' : 'queued',
                 'error_message' => $result['error'],
             ]);
@@ -161,10 +162,25 @@ class SendWhatsAppNotificationJob implements ShouldQueue
     {
         $notification = NotificationLog::find($this->notificationId);
         if ($notification) {
-            $notification->update([
+            // Jangan menimpa status akhir (mis. webhook sudah menulis delivered
+            // sebelum job melaporkan timeout).
+            $this->updateUnlessFinal($notification, [
                 'status' => 'failed',
                 'error_message' => $exception->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Update notifikasi hanya bila statusnya belum final.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function updateUnlessFinal(NotificationLog $notification, array $attributes): bool
+    {
+        return NotificationLog::query()
+            ->whereKey($notification->id)
+            ->whereNotIn('status', NotificationLog::FINAL_STATUSES)
+            ->update($attributes) > 0;
     }
 }

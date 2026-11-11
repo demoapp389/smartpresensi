@@ -83,6 +83,34 @@ class PruneConnectorResourcesCommandTest extends TestCase
         $this->assertFileDoesNotExist($old);
     }
 
+    public function test_it_rotates_laravel_logs_and_deletes_stale_daily_logs(): void
+    {
+        $laravel = $this->root.'/logs/laravel.log';
+        File::put($laravel, implode(PHP_EOL, array_map(fn ($i) => 'laravel-'.$i, range(1, 50))).PHP_EOL);
+
+        $staleDaily = $this->root.'/logs/laravel-2026-01-01.log';
+        File::put($staleDaily, 'stale'.PHP_EOL);
+        touch($staleDaily, now()->subDays(30)->getTimestamp());
+
+        $recentDaily = $this->root.'/logs/laravel-2026-11-11.log';
+        File::put($recentDaily, 'recent'.PHP_EOL);
+
+        $this->artisan('fingerprint:prune-resources', [
+            '--logs-dir' => $this->root.'/logs',
+            '--connector-dir' => $this->root.'/connector',
+            '--keep-lines' => 10,
+            '--log-max-bytes' => 1,
+            '--laravel-log-keep-days' => 14,
+        ])->assertExitCode(0);
+
+        $lines = file($laravel, FILE_IGNORE_NEW_LINES);
+        $this->assertCount(10, $lines);
+        $this->assertSame('laravel-41', $lines[0]);
+
+        $this->assertFileDoesNotExist($staleDaily);
+        $this->assertFileExists($recentDaily);
+    }
+
     public function test_it_prunes_sync_logs_older_than_retention(): void
     {
         $device = FingerprintDevice::create([

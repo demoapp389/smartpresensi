@@ -14,6 +14,14 @@ class NotificationLog extends Model
     use HasFactory;
     use MassPrunable;
 
+    /**
+     * Status akhir yang tidak boleh ditimpa oleh retry job atau event webhook
+     * yang datang terlambat (mis. `delivered` tidak boleh kembali `sent`/`failed`).
+     *
+     * @var array<int, string>
+     */
+    public const FINAL_STATUSES = ['sent', 'delivered', 'read', 'cancelled'];
+
     protected $fillable = [
         'attendance_id',
         'guardian_id',

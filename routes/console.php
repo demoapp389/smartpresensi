@@ -15,7 +15,7 @@ Schedule::command('fingerprint:health-check')->everyMinute()->withoutOverlapping
 
 // Rekonsiliasi absensi adaptif: rapat (5 menit) sepanjang jam sekolah, jarang (30 menit) di luar jam sekolah/hari libur.
 // Menyalurkan tiap mesin ke jalur ingest utamanya (connector/SOAP) sesuai kolom ingest_driver.
-Schedule::command('fingerprint:reconcile')->everyMinute();
+Schedule::command('fingerprint:reconcile')->everyMinute()->withoutOverlapping(5);
 
 // Samakan jam mesin driver SOAP sekali sehari (connector C# mengatur jamnya sendiri).
 Schedule::command('fingerprint:pull-soap --sync-time --time-only')->dailyAt('05:00');
@@ -30,6 +30,10 @@ Schedule::command('fingerprint:prune-resources')->dailyAt('03:30');
 // (config/audit.php dan config/whatsapp.php).
 Schedule::command('model:prune', ['--model' => [AuditLog::class, NotificationLog::class]])
     ->dailyAt('03:45');
+
+// Pangkas riwayat job gagal agar tabel failed_jobs tidak tumbuh tanpa batas
+// (retensi 7 hari; job yang masih perlu ditelusuri bisa di-retry lebih dulu).
+Schedule::command('queue:prune-failed', ['--hours' => 168])->dailyAt('04:00');
 
 // Batalkan notifikasi WhatsApp 'held' yang kedaluwarsa agar tidak menggantung permanen
 // bila nomor wali tidak pernah divalidasi ulang.

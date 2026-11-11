@@ -21,14 +21,15 @@ class PruneConnectorResourcesCommand extends Command
         {--log-max-bytes=10485760 : Ambang ukuran log (byte) sebelum dirotasi}
         {--buffer-max-bytes=20971520 : Ambang ukuran offline buffer (byte) sebelum dipangkas}
         {--state-keep-days=14 : Umur maksimum berkas di connector/state (hari)}
-        {--sync-log-days=90 : Retensi riwayat sinkronisasi mesin (hari; 0 = nonaktif)}';
+        {--sync-log-days=90 : Retensi riwayat sinkronisasi mesin (hari; 0 = nonaktif)}
+        {--laravel-log-keep-days=14 : Retensi berkas laravel-*.log harian (hari; 0 = nonaktif)}';
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Rotasi log connector/worker, pangkas offline buffer, bersihkan state lama, dan retensi riwayat sinkronisasi (terjadwal harian)';
+    protected $description = 'Rotasi log connector/worker/Laravel, pangkas offline buffer, bersihkan state lama, dan retensi riwayat sinkronisasi (terjadwal harian)';
 
     /**
      * Execute the console command.
@@ -39,6 +40,7 @@ class PruneConnectorResourcesCommand extends Command
         $connectorDir = $this->option('connector-dir') ?: base_path('connector');
 
         $this->rotateLogs($logsDir);
+        $this->pruneLaravelLogs($logsDir);
         $this->pruneBuffer($connectorDir);
         $this->pruneState($connectorDir);
         $this->pruneSyncLogs();
@@ -51,7 +53,14 @@ class PruneConnectorResourcesCommand extends Command
         $maxBytes = (int) $this->option('log-max-bytes');
         $keep = (int) $this->option('keep-lines');
 
-        foreach (['connector_service.log', 'queue_worker_service.log'] as $name) {
+        // Log Laravel (single maupun harian) ikut dirotasi agar tidak tumbuh
+        // tanpa batas; berkas harian yang sudah tua dihapus oleh pruneLaravelLogs().
+        $laravelLogs = File::glob($logsDir.DIRECTORY_SEPARATOR.'laravel*.log') ?: [];
+
+        foreach (array_merge(
+            ['connector_service.log', 'queue_worker_service.log'],
+            array_map(fn (string $path): string => basename($path), $laravelLogs)
+        ) as $name) {
             $path = $logsDir.DIRECTORY_SEPARATOR.$name;
 
             if (! File::exists($path)) {
@@ -67,6 +76,29 @@ class PruneConnectorResourcesCommand extends Command
             if ($trimmed) {
                 $this->info("Log dirotasi: {$name} (disisakan {$keep} baris terakhir).");
             }
+        }
+    }
+
+    private function pruneLaravelLogs(string $logsDir): void
+    {
+        $keepDays = (int) $this->option('laravel-log-keep-days');
+
+        if ($keepDays <= 0) {
+            return;
+        }
+
+        $threshold = now()->subDays($keepDays)->getTimestamp();
+        $deleted = 0;
+
+        foreach (File::glob($logsDir.DIRECTORY_SEPARATOR.'laravel-*.log') ?: [] as $path) {
+            if (File::lastModified($path) < $threshold) {
+                File::delete($path);
+                $deleted++;
+            }
+        }
+
+        if ($deleted > 0) {
+            $this->info("Menghapus {$deleted} berkas log Laravel lama (> {$keepDays} hari).");
         }
     }
 

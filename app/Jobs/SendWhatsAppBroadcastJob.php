@@ -10,19 +10,31 @@ use App\Models\WhatsAppTemplate;
 use App\Services\WhatsApp\WhatsAppManager;
 use App\Support\TaskProgressReporter;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
-class SendWhatsAppBroadcastJob implements ShouldQueue
+class SendWhatsAppBroadcastJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $timeout = 1800;
 
     public int $tries = 1;
+
+    /**
+     * Satu siaran (progress_uuid) hanya boleh punya satu job aktif pada satu waktu.
+     */
+    public int $uniqueFor = 1800;
+
+    public function uniqueId(): string
+    {
+        return $this->progressUuid;
+    }
 
     /**
      * @param  list<int>|null  $classIds
@@ -146,47 +158,73 @@ class SendWhatsAppBroadcastJob implements ShouldQueue
                 ]
             );
 
-            // Bila eksekusi sebelumnya sudah menandai pesan ini 'sent', lewati agar tidak
-            // terkirim ulang ke wali yang sama saat job di-restart.
-            if (! $notificationLog->wasRecentlyCreated && $notificationLog->status === 'sent') {
-                $sentCount++;
+            // Klaim per baris outbox: dua instance job (mis. restart setelah timeout)
+            // tidak boleh mengirim nomor yang sama secara bersamaan.
+            $lock = Cache::lock('whatsapp-broadcast:'.$notificationLog->id, 120);
 
+            if (! $lock->get()) {
                 if ($reporter) {
-                    $reporter->advance(1, "Lewati {$guardian->name} ({$phone}) — sudah terkirim.");
+                    $reporter->advance(1, "Lewati {$guardian->name} ({$phone}) — sedang diproses instance lain.");
                 }
 
                 continue;
             }
 
-            // Kirim pesan via driver gateway
             try {
-                $res = $driver->sendMessage($notificationLog);
+                $notificationLog->refresh();
 
-                if (! empty($res['success'])) {
-                    $notificationLog->update([
-                        'status' => 'sent',
-                        'sent_at' => now(),
-                        'provider_message_id' => $res['message_id'] ?? null,
-                    ]);
+                // Bila eksekusi lain sudah menyelesaikan pesan ini, lewati agar tidak
+                // terkirim ulang ke wali yang sama saat job di-restart.
+                if (in_array($notificationLog->status, ['sent', 'delivered', 'read'], true)) {
                     $sentCount++;
-                } else {
+
+                    if ($reporter) {
+                        $reporter->advance(1, "Lewati {$guardian->name} ({$phone}) — sudah terkirim.");
+                    }
+
+                    continue;
+                }
+
+                if ($notificationLog->status === 'cancelled') {
+                    if ($reporter) {
+                        $reporter->advance(1, "Lewati {$guardian->name} ({$phone}) — dibatalkan.");
+                    }
+
+                    continue;
+                }
+
+                // Kirim pesan via driver gateway
+                try {
+                    $res = $driver->sendMessage($notificationLog);
+
+                    if (! empty($res['success'])) {
+                        $notificationLog->update([
+                            'status' => 'sent',
+                            'sent_at' => now(),
+                            'provider_message_id' => $res['message_id'] ?? null,
+                        ]);
+                        $sentCount++;
+                    } else {
+                        $notificationLog->update([
+                            'status' => 'failed',
+                            'error_message' => $res['error'] ?? 'Pengiriman gagal dari gateway.',
+                        ]);
+                        $failedCount++;
+                    }
+                } catch (\Throwable $e) {
+                    Log::error('[Broadcast WA Exception] '.$e->getMessage(), [
+                        'recipient' => $phone,
+                        'guardian_id' => $guardian->id,
+                    ]);
+
                     $notificationLog->update([
                         'status' => 'failed',
-                        'error_message' => $res['error'] ?? 'Pengiriman gagal dari gateway.',
+                        'error_message' => $e->getMessage(),
                     ]);
                     $failedCount++;
                 }
-            } catch (\Throwable $e) {
-                Log::error('[Broadcast WA Exception] '.$e->getMessage(), [
-                    'recipient' => $phone,
-                    'guardian_id' => $guardian->id,
-                ]);
-
-                $notificationLog->update([
-                    'status' => 'failed',
-                    'error_message' => $e->getMessage(),
-                ]);
-                $failedCount++;
+            } finally {
+                $lock->release();
             }
 
             if ($reporter) {

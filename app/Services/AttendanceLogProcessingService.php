@@ -7,6 +7,7 @@ use App\Models\AttendanceLog;
 use App\Models\AuditLog;
 use App\Models\FingerprintDevice;
 use App\Support\TaskProgressReporter;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
@@ -71,6 +72,8 @@ class AttendanceLogProcessingService
         AttendanceLog $log,
         array $allowedStatuses = ['unprocessed'],
     ): ?Attendance {
+        // Deadlock membatalkan seluruh transaksi MySQL, jadi retry harus dilakukan
+        // di transaksi terluar (bukan pada savepoint di dalamnya).
         $attendance = DB::transaction(function () use ($log, $allowedStatuses): ?Attendance {
             $lockedLog = AttendanceLog::query()
                 ->whereKey($log->id)
@@ -91,9 +94,11 @@ class AttendanceLogProcessingService
             ])->save();
 
             try {
-                $attendance = DB::transaction(
-                    fn (): ?Attendance => $this->processingService->processLog($lockedLog)
-                );
+                $attendance = $this->processingService->processLog($lockedLog);
+            } catch (DeadlockException $exception) {
+                // MySQL sudah membatalkan seluruh transaksi; ulangi dari awal
+                // lewat transaksi terluar, jangan catat sebagai kegagalan log.
+                throw $exception;
             } catch (Throwable $exception) {
                 $lockedLog->refresh();
                 $this->recordFailedAttempt($lockedLog, $attempt, $exception);
@@ -114,7 +119,7 @@ class AttendanceLogProcessingService
             }
 
             return $attendance;
-        });
+        }, 3);
 
         if ($attendance !== null) {
             $log->refresh();
@@ -251,7 +256,7 @@ class AttendanceLogProcessingService
             ]);
 
             return $attendance;
-        });
+        }, 3);
 
         // Scan hari ini yang sempat ditahan karena keterlambatan unggah tetap
         // layak diberitahukan ke wali. Scan tanggal lampau tidak dikirim susulan
