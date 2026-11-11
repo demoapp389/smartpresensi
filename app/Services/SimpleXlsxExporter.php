@@ -58,14 +58,18 @@ class SimpleXlsxExporter
     /**
      * Generate file .xlsx ke file temporary dan kembalikan BinaryFileResponse.
      *
+     * Baris ditulis bertahap ke file worksheet sementara, jadi memori tidak
+     * menampung seluruh XML sheet meskipun `$rows` adalah generator/iterator
+     * berisi puluhan ribu baris.
+     *
      * @param  array<int, string>  $headers
-     * @param  array<int, array<int, mixed>>  $rows
+     * @param  iterable<int, array<int, mixed>>  $rows
      * @param  array<int, float|int>  $columnWidths
      */
     public static function download(
         string $filename,
         array $headers,
-        array $rows,
+        iterable $rows,
         string $sheetTitle = 'Rekap Presensi',
         array $columnWidths = []
     ): BinaryFileResponse {
@@ -74,8 +78,18 @@ class SimpleXlsxExporter
             throw new \RuntimeException('Gagal membuat file temporary.');
         }
 
+        $sheetPath = tempnam(sys_get_temp_dir(), 'xlsx_sheet_');
+        if (! $sheetPath) {
+            @unlink($tempPath);
+
+            throw new \RuntimeException('Gagal membuat file temporary worksheet.');
+        }
+
         $zip = new ZipArchive;
         if ($zip->open($tempPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            @unlink($tempPath);
+            @unlink($sheetPath);
+
             throw new \RuntimeException('Gagal menginisialisasi ZipArchive untuk XLSX.');
         }
 
@@ -139,51 +153,34 @@ class SimpleXlsxExporter
             .'</styleSheet>';
         $zip->addFromString('xl/styles.xml', $styles);
 
-        // 6. xl/worksheets/sheet1.xml
-        $sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            .'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">';
-
-        if (! empty($columnWidths)) {
-            $sheetXml .= '<cols>';
-            foreach ($columnWidths as $colIndex => $width) {
-                $columnNumber = $colIndex + 1;
-                $sheetXml .= '<col min="'.$columnNumber.'" max="'.$columnNumber.'" width="'.round((float) $width, 2).'" customWidth="1"/>';
+        // 6. xl/worksheets/sheet1.xml — ditulis ke file sementara per blok baris.
+        try {
+            $sheetHandle = fopen($sheetPath, 'wb');
+            if ($sheetHandle === false) {
+                throw new \RuntimeException('Gagal membuka file worksheet sementara.');
             }
-            $sheetXml .= '</cols>';
+
+            try {
+                self::writeWorksheet($sheetHandle, $headers, $rows, $columnWidths);
+            } finally {
+                fclose($sheetHandle);
+            }
+
+            if (! $zip->addFile($sheetPath, 'xl/worksheets/sheet1.xml')) {
+                throw new \RuntimeException('Gagal menambahkan worksheet ke XLSX.');
+            }
+
+            $zip->close();
+        } catch (\Throwable $e) {
+            @$zip->close();
+            @unlink($tempPath);
+            @unlink($sheetPath);
+
+            throw $e;
         }
 
-        $sheetXml .= '<sheetData>';
-
-        $rowNumber = 1;
-
-        // Render Baris Header (Bold)
-        if (! empty($headers)) {
-            $sheetXml .= '<row r="'.$rowNumber.'">';
-            foreach ($headers as $colIndex => $head) {
-                $cellRef = self::getColumnLetter($colIndex).$rowNumber;
-                $safeVal = htmlspecialchars(self::sanitizeCellValue($head), ENT_XML1, 'UTF-8');
-                $sheetXml .= '<c r="'.$cellRef.'" t="inlineStr" s="1"><is><t>'.$safeVal.'</t></is></c>';
-            }
-            $sheetXml .= '</row>';
-            $rowNumber++;
-        }
-
-        // Render Baris Data
-        foreach ($rows as $rowData) {
-            $sheetXml .= '<row r="'.$rowNumber.'">';
-            foreach ($rowData as $colIndex => $cellVal) {
-                $cellRef = self::getColumnLetter($colIndex).$rowNumber;
-                $safeVal = htmlspecialchars(self::sanitizeCellValue($cellVal), ENT_XML1, 'UTF-8');
-                $sheetXml .= '<c r="'.$cellRef.'" t="inlineStr"><is><t>'.$safeVal.'</t></is></c>';
-            }
-            $sheetXml .= '</row>';
-            $rowNumber++;
-        }
-
-        $sheetXml .= '</sheetData></worksheet>';
-        $zip->addFromString('xl/worksheets/sheet1.xml', $sheetXml);
-
-        $zip->close();
+        // ZipArchive sudah membaca isi worksheet saat close(); file sementara aman dihapus.
+        @unlink($sheetPath);
 
         $response = response()->download($tempPath, $filename, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -191,5 +188,74 @@ class SimpleXlsxExporter
         ]);
 
         return $response->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Tulis worksheet XML secara bertahap ke handle file.
+     *
+     * @param  resource  $handle
+     * @param  array<int, string>  $headers
+     * @param  iterable<int, array<int, mixed>>  $rows
+     * @param  array<int, float|int>  $columnWidths
+     */
+    private static function writeWorksheet($handle, array $headers, iterable $rows, array $columnWidths): void
+    {
+        $buffer = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            .'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">';
+
+        if (! empty($columnWidths)) {
+            $buffer .= '<cols>';
+            foreach ($columnWidths as $colIndex => $width) {
+                $columnNumber = $colIndex + 1;
+                $buffer .= '<col min="'.$columnNumber.'" max="'.$columnNumber.'" width="'.round((float) $width, 2).'" customWidth="1"/>';
+            }
+            $buffer .= '</cols>';
+        }
+
+        $buffer .= '<sheetData>';
+
+        $rowNumber = 1;
+
+        // Render Baris Header (Bold)
+        if (! empty($headers)) {
+            $buffer .= self::renderRow($headers, $rowNumber, true);
+            $rowNumber++;
+        }
+
+        $bufferedRows = 0;
+
+        // Render Baris Data per blok agar jumlah panggilan fwrite tetap wajar.
+        foreach ($rows as $rowData) {
+            $buffer .= self::renderRow($rowData, $rowNumber, false);
+            $rowNumber++;
+
+            if (++$bufferedRows >= 500) {
+                fwrite($handle, $buffer);
+                $buffer = '';
+                $bufferedRows = 0;
+            }
+        }
+
+        $buffer .= '</sheetData></worksheet>';
+        fwrite($handle, $buffer);
+    }
+
+    /**
+     * @param  iterable<int, mixed>  $cells
+     */
+    private static function renderRow(iterable $cells, int $rowNumber, bool $bold): string
+    {
+        $xml = '<row r="'.$rowNumber.'">';
+        $style = $bold ? ' s="1"' : '';
+        $colIndex = 0;
+
+        foreach ($cells as $cellVal) {
+            $cellRef = self::getColumnLetter($colIndex).$rowNumber;
+            $safeVal = htmlspecialchars(self::sanitizeCellValue($cellVal), ENT_XML1, 'UTF-8');
+            $xml .= '<c r="'.$cellRef.'" t="inlineStr"'.$style.'><is><t>'.$safeVal.'</t></is></c>';
+            $colIndex++;
+        }
+
+        return $xml.'</row>';
     }
 }

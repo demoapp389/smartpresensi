@@ -15,6 +15,7 @@ use App\Services\WhatsAppNotificationService;
 use Carbon\Carbon;
 use Illuminate\Contracts\Queue\Job;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
@@ -801,7 +802,7 @@ class GuardianWhatsAppValidationTest extends TestCase
         $this->assertSame('valid', $guardian->fresh()->wa_status);
     }
 
-    public function test_validation_page_renders_client_side_datatables_without_server_pagination(): void
+    public function test_validation_page_uses_server_side_pagination(): void
     {
         Config::set('whatsapp.validation.auto_validate_on_save', false);
 
@@ -815,13 +816,15 @@ class GuardianWhatsAppValidationTest extends TestCase
             'active' => true,
         ]);
 
-        $html = $this->actingAs($this->adminUser)
+        $response = $this->actingAs($this->adminUser)
             ->get(route('guardians.validation'))
-            ->assertOk()
-            ->getContent();
+            ->assertOk();
 
-        // Data dikirim penuh ke DataTables sisi klien, bukan paginasi server.
-        $this->assertStringContainsString('data-datatable', $html);
-        $this->assertStringNotContainsString('Halaman 1 dari', $html);
+        $response->assertViewHas('guardians', fn ($guardians) => $guardians instanceof LengthAwarePaginator);
+
+        $html = $response->getContent();
+        $this->assertStringNotContainsString('data-datatable', $html);
+        $this->assertStringContainsString('Menampilkan', $html);
+        $this->assertStringContainsString('name="per_page"', $html);
     }
 }

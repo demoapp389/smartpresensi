@@ -44,7 +44,7 @@ class GuardianValidationController extends Controller
             });
         }
 
-        $guardians = $query->get();
+        $guardians = $query->paginate($this->resolvePerPage(10))->withQueryString();
 
         $activeGuardians = Guardian::where('active', true);
 

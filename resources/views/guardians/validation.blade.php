@@ -62,10 +62,18 @@
         </div>
     </div>
 
-    {{-- Filter dipindah ke toolbar DataTables oleh tables.js: dropdown jumlah
-         baris + filter di kiri, kotak pencarian bawaan DataTables di kanan
-         (lengkap dengan ikon). Tetap form GET biasa bila JS mati. --}}
+    {{-- Filter dan paginasi dijalankan di server; hanya satu halaman data dimuat. --}}
     <form id="guardian-filter" method="GET" action="{{ route('guardians.validation') }}" class="flex flex-wrap items-center gap-2 text-xs">
+        <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5">
+            <svg class="size-3.5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+            <label for="guardian_search" class="sr-only">Cari wali atau siswa</label>
+            <input type="search" id="guardian_search" name="search" value="{{ $search }}" placeholder="Cari nama wali, nomor, atau siswa…"
+                class="h-full w-52 bg-transparent text-xs text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none">
+        </div>
+        <button type="submit"
+            class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
+            Cari
+        </button>
         <select name="status" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary)] focus:outline-none cursor-pointer">
             <option value="">Semua Status</option>
             <option value="valid" {{ $status === 'valid' ? 'selected' : '' }}>Valid</option>
@@ -74,7 +82,7 @@
             <option value="unknown" {{ $status === 'unknown' ? 'selected' : '' }}>Unknown</option>
         </select>
 
-        @if($status)
+        @if($status || $search)
             <a href="{{ route('guardians.validation') }}" class="inline-flex items-center justify-center h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
                 Reset
             </a>
@@ -83,8 +91,8 @@
 
     {{-- Tabel --}}
     <section class="min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)] overflow-hidden">
-        <div>
-            <table class="min-w-[700px] w-full text-left text-xs" data-datatable data-page-length="10" data-length-change="true" data-toolbar-filter="#guardian-filter" data-empty-message="Belum ada data wali">
+        <div class="overflow-x-auto">
+            <table class="min-w-[700px] w-full text-left text-xs">
                 <thead class="bg-[var(--surface-secondary)] text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider border-b border-[var(--border-subtle)]">
                     <tr>
                         <th scope="col" class="px-4 py-2.5">Wali Murid</th>
@@ -92,11 +100,11 @@
                         <th scope="col" class="px-4 py-2.5">Nomor WhatsApp</th>
                         <th scope="col" class="px-4 py-2.5">Status</th>
                         <th scope="col" class="px-4 py-2.5">Terakhir Divalidasi</th>
-                        <th scope="col" data-orderable="false" class="px-4 py-2.5 text-right">Aksi</th>
+                        <th scope="col" class="px-4 py-2.5 text-right">Aksi</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-[var(--border-subtle)] text-[13px]">
-                    @foreach($guardians as $guardian)
+                    @forelse($guardians as $guardian)
                     <tr class="hover:bg-[var(--surface-secondary)]/50 transition-colors">
                         <td class="px-4 py-2.5">
                             <div class="font-semibold text-[var(--text)]">{{ $guardian->name }}</div>
@@ -147,9 +155,22 @@
                             @endif
                         </td>
                     </tr>
-                    @endforeach
+                    @empty
+                    <tr>
+                        <td colspan="6" class="px-4 py-8 text-center text-sm text-[var(--text-muted)]">
+                            Belum ada data wali yang sesuai dengan filter.
+                        </td>
+                    </tr>
+                    @endforelse
                 </tbody>
             </table>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-3 text-xs">
+            @include('partials.per-page', ['paginator' => $guardians])
+            <div>
+                {{ $guardians->links() }}
+            </div>
         </div>
     </section>
 </div>

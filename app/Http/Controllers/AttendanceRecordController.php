@@ -601,12 +601,16 @@ class AttendanceRecordController extends Controller
 
         if ($format === 'xlsx') {
             $filename = "rekap_absensi_{$periodLabel}.xlsx";
-            $rows = [];
-            $no = 1;
 
-            foreach ($query->lazy(500) as $item) {
-                $rows[] = $mapRow($item, $no++);
-            }
+            // Baris dialirkan langsung dari query agar tidak menumpuk array besar
+            // sebelum worksheet ditulis oleh SimpleXlsxExporter.
+            $rows = (static function () use ($query, $mapRow): \Generator {
+                $no = 1;
+
+                foreach ($query->lazy(500) as $item) {
+                    yield $mapRow($item, $no++);
+                }
+            })();
 
             return SimpleXlsxExporter::download(
                 $filename,

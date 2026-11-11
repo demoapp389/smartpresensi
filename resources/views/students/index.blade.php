@@ -77,7 +77,7 @@
                 <div class="card-title text-sm font-semibold text-[var(--text)]">
                     {{ $status === 'trashed' ? 'Daftar Siswa di Sampah (Soft-Deleted)' : 'Daftar Siswa Terdaftar' }}
                 </div>
-                <div class="card-subtitle mt-0.5 text-xs text-[var(--text-muted)]">{{ $students->count() }} siswa terdaftar</div>
+                <div class="card-subtitle mt-0.5 text-xs text-[var(--text-muted)]">{{ $students->total() }} siswa terdaftar</div>
             </div>
 
             <div class="card-options flex flex-wrap items-center gap-2">
@@ -111,19 +111,28 @@
             </div>
         </div>
 
-        {{-- Filter toolbar dipindah ke dalam card agar tidak pernah tampil di luar card
-             sebelum DataTables siap; tables.js membuka `hidden` setelah tabel diinisialisasi. --}}
-        <form id="student-class-filter" hidden method="GET" action="{{ route('students.index') }}" class="flex items-center gap-1.5 text-xs">
+        {{-- Filter dijalankan di server; hanya satu halaman data yang dimuat. --}}
+        <form id="student-class-filter" method="GET" action="{{ route('students.index') }}" class="flex flex-wrap items-center gap-1.5 text-xs">
             @if($status === 'trashed')
                 <input type="hidden" name="status" value="trashed">
             @endif
+            <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5">
+                <svg class="size-3.5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+                <label for="student_search" class="sr-only">Cari siswa</label>
+                <input type="search" id="student_search" name="search" value="{{ $search }}" placeholder="Cari nama, NIS, atau NISN…"
+                    class="h-full w-40 bg-transparent text-xs text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none">
+            </div>
+            <button type="submit"
+                class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
+                Cari
+            </button>
             <select name="class_id" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
                 <option value="">Semua Kelas</option>
                 @foreach($classes as $c)
                     <option value="{{ $c->id }}" {{ $classId == $c->id ? 'selected' : '' }}>{{ $c->name }}</option>
                 @endforeach
             </select>
-            @if($classId)
+            @if($classId || $search)
                 <a href="{{ route('students.index', $status === 'trashed' ? ['status' => 'trashed'] : []) }}"
                     class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
                     Reset
@@ -214,11 +223,11 @@
             </div>
         </div>
 
-        <div>
-            <table class="w-full text-left" data-datatable data-page-length="10" data-length-change="true" data-toolbar-filter="#student-class-filter" data-empty-message="Belum ada data siswa yang terdaftar.">
+        <div class="overflow-x-auto">
+            <table class="min-w-[900px] w-full text-left">
                 <thead class="bg-[var(--surface-secondary)]">
                     <tr>
-                        <th style="width:40px" class="px-4 py-2" data-orderable="false">
+                        <th style="width:40px" class="px-4 py-2">
                             <input type="checkbox"
                                 :checked="selected.length > 0 && selected.length === $root.querySelectorAll('tbody input[type=checkbox]').length"
                                 @change="selected = $event.target.checked ? Array.from($root.querySelectorAll('tbody input[type=checkbox]')).map(cb => cb.value) : []"
@@ -232,11 +241,11 @@
                         <th class="px-4 py-2 text-[11px] font-bold tracking-wider text-[var(--text-muted)] uppercase">WhatsApp Wali</th>
                         <th class="px-4 py-2 text-[11px] font-bold tracking-wider text-[var(--text-muted)] uppercase">Status Validasi</th>
                         <th class="px-4 py-2 text-[11px] font-bold tracking-wider text-[var(--text-muted)] uppercase">Consent WA</th>
-                        <th style="width:140px" class="px-4 py-2 text-right text-[11px] font-bold tracking-wider text-[var(--text-muted)] uppercase" data-orderable="false">Aksi</th>
+                        <th style="width:140px" class="px-4 py-2 text-right text-[11px] font-bold tracking-wider text-[var(--text-muted)] uppercase">Aksi</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-[var(--border-subtle)] text-[13px]">
-                    @foreach($students as $s)
+                    @forelse($students as $s)
                     @php
                         $guardian = $s->guardians->first();
                         $deviceUser = $s->deviceUsers->first();
@@ -385,9 +394,22 @@
                             @endif
                         </td>
                     </tr>
-                    @endforeach
+                    @empty
+                    <tr>
+                        <td colspan="9" class="px-4 py-8 text-center text-sm text-[var(--text-muted)]">
+                            Belum ada data siswa yang sesuai dengan filter.
+                        </td>
+                    </tr>
+                    @endforelse
                 </tbody>
             </table>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-3 text-xs">
+            @include('partials.per-page', ['paginator' => $students])
+            <div>
+                {{ $students->links() }}
+            </div>
         </div>
     </section>
 

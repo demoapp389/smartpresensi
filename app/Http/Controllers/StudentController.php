@@ -114,7 +114,7 @@ class StudentController extends Controller
         // Apply other filters from trait (device_id if needed)
         $query = $this->applyFilters($query, $request);
 
-        $students = $query->get();
+        $students = $query->paginate($this->resolvePerPage(10))->withQueryString();
         $classes = SchoolClass::orderBy('name')->get();
         $devices = FingerprintDevice::where('active', true)->get();
         $trashedCount = Student::onlyTrashed()->count();

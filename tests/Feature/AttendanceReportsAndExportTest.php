@@ -7,6 +7,8 @@ use App\Models\SchoolClass;
 use App\Models\SchoolHoliday;
 use App\Models\Student;
 use App\Models\User;
+use App\Services\SimpleXlsxExporter;
+use App\Services\SimpleXlsxReader;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -80,6 +82,28 @@ class AttendanceReportsAndExportTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    }
+
+    public function test_xlsx_exporter_streams_generated_rows(): void
+    {
+        $rows = (static function (): \Generator {
+            foreach (range(1, 1200) as $index) {
+                yield [$index, 'Siswa '.$index, '=1+1'];
+            }
+        })();
+
+        $response = SimpleXlsxExporter::download(
+            'streamed.xlsx',
+            ['No', 'Nama', 'Catatan'],
+            $rows
+        );
+
+        $parsed = SimpleXlsxReader::parse($response->getFile()->getPathname());
+
+        $this->assertSame(['No', 'Nama', 'Catatan'], $parsed[0]);
+        $this->assertCount(1201, $parsed);
+        $this->assertSame('1200', $parsed[1200][0]);
+        $this->assertSame("'=1+1", $parsed[1][2]);
     }
 
     public function test_admin_can_export_attendances_as_csv(): void

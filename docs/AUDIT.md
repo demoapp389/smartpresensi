@@ -113,6 +113,8 @@ Dokumen audit lama sudah diringkas ke sini lalu dihapus agar tidak menjadi sumbe
 - **Operasional:** unit systemd worker/scheduler memakai `MemoryMax` dan batas restart; scheduler menjalankan `db:backup` harian dengan checksum SHA-256 dan retensi 14 hari; baris offline buffer yang dibuang diarsipkan sebelum dihapus.
 - **Dependensi:** `laravel/tinker` dipindah ke `require-dev` agar tidak terpasang pada deployment produksi tanpa dev dependency.
 - **UI:** breadcrumb hanya dirender di area konten (topbar tanpa breadcrumb), dropdown jumlah baris tetap dipertahankan, opsi filter status raw log tidak lagi duplikat, dan label DataTables diseragamkan ke bahasa Indonesia.
+- **Performa:** Data Siswa & Wali dan Validasi Nomor Wali memakai pagination server-side dengan `per_page` dan pencarian di server, sehingga browser tidak lagi memuat seluruh baris; pemilihan massal berlaku untuk baris pada halaman aktif.
+- **Ekspor:** `SimpleXlsxExporter` menerima `iterable` dan menulis worksheet bertahap ke file sementara, sehingga ekspor rekap presensi mengalirkan baris dari query tanpa menumpuk array baris atau XML sheet di memori.
 
 ## Tindakan yang Sudah Diverifikasi
 
