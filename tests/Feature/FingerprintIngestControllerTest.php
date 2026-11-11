@@ -13,6 +13,7 @@ use App\Models\Student;
 use App\Services\WhatsAppNotificationService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -268,5 +269,35 @@ class FingerprintIngestControllerTest extends TestCase
     {
         $this->getJson('/api/v1/fingerprint/ping', ['X-Device-Token' => 'tidak-ada'])
             ->assertStatus(401);
+    }
+
+    public function test_ingest_rate_limit_cannot_be_bypassed_by_rotating_the_device_token(): void
+    {
+        // Batas 120/menit per IP: token acak yang berbeda-beda tidak boleh
+        // membuka bucket baru.
+        for ($i = 0; $i < 120; $i++) {
+            $this->postJson('/api/v1/fingerprint/ingest', $this->payload(), [
+                'X-Device-Token' => 'rotated-token-'.$i,
+            ])->assertStatus(403);
+        }
+
+        $this->postJson('/api/v1/fingerprint/ingest', $this->payload(), [
+            'X-Device-Token' => 'rotated-token-after-limit',
+        ])->assertStatus(429);
+    }
+
+    public function test_ping_rejects_blank_token_even_when_a_device_has_no_token(): void
+    {
+        $device = $this->device();
+
+        // Token NULL tidak boleh cocok dengan permintaan tanpa header
+        // (`where('secret_token', null)` menjadi `IS NULL`).
+        DB::table('fingerprint_devices')
+            ->where('id', $device->id)
+            ->update(['secret_token' => null]);
+
+        $this->getJson('/api/v1/fingerprint/ping')->assertStatus(401);
+
+        $this->assertSame('offline', $device->refresh()->status);
     }
 }

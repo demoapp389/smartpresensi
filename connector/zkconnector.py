@@ -68,7 +68,6 @@ STATUS_STALE_SECONDS = 90.0
 # watermark/buffer lama tidak hilang saat upgrade.
 LEGACY_KEY = "default"
 DEFAULT_DEVICE_IP = "100.50.25.67"
-DEFAULT_DEVICE_TOKEN = "x601_sec_token_school_solution_lan"
 DEFAULT_API_URL = "http://127.0.0.1:8000/api/v1/fingerprint/ingest"
 
 
@@ -220,8 +219,17 @@ class Config:
     # --------------------------------------------------------------- parsing
 
     def _apply_legacy_defaults(self) -> None:
+        # Token tidak punya nilai bawaan: token harus diunduh dari dashboard
+        # (Kelola Mesin -> Unduh connector_config.ini) agar tidak ada kredensial
+        # bersama yang tertanam di repositori.
         self.devices[LEGACY_KEY] = DeviceConfig(
-            LEGACY_KEY, DEFAULT_DEVICE_IP, 4370, "0", DEFAULT_DEVICE_TOKEN
+            LEGACY_KEY, DEFAULT_DEVICE_IP, 4370, "0", ""
+        )
+
+        _log(
+            "[CONFIG WARN] device_token kosong. Unduh connector_config.ini dari "
+            "dashboard (Kelola Mesin) atau isi token perangkat sebelum sinkronisasi; "
+            "tanpa token Laravel akan menolak ingest (401/403)."
         )
 
     def _parse(self, text: str) -> None:

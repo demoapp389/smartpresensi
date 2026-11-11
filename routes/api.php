@@ -5,7 +5,7 @@ use App\Http\Controllers\Api\TaskProgressController;
 use App\Http\Controllers\Api\WhatsAppWebhookController;
 use Illuminate\Support\Facades\Route;
 
-// API Ingest untuk C# Connector Solution X601 (dibatasi rate limit per token perangkat)
+// API Ingest untuk C# Connector Solution X601 (dibatasi rate limit per alamat IP)
 Route::prefix('v1/fingerprint')->middleware('throttle:fingerprint-ingest')->group(function () {
     Route::post('/ingest', [FingerprintIngestController::class, 'ingest'])->name('api.fingerprint.ingest');
     Route::get('/ping', [FingerprintIngestController::class, 'ping'])->name('api.fingerprint.ping');

@@ -146,6 +146,63 @@ class GuardianWhatsAppValidationTest extends TestCase
         ]);
     }
 
+    public function test_transient_validation_failure_keeps_valid_status_and_releases_held_notifications(): void
+    {
+        Queue::fake();
+
+        Http::fake([
+            'https://api.fonnte.com/validate' => Http::response('gateway timeout', 504),
+        ]);
+
+        $guardian = Guardian::create([
+            'student_id' => $this->student->id,
+            'name' => 'Hasan',
+            'relationship' => 'Ayah',
+            'wa_number' => '081234567890',
+            'wa_status' => 'valid',
+            'wa_validated_at' => now(),
+            'consent_at' => now(),
+            'active' => true,
+        ]);
+
+        $attendance = Attendance::create([
+            'student_id' => $this->student->id,
+            'school_date' => Carbon::today(),
+            'status' => 'hadir',
+            'check_in_at' => now(),
+        ]);
+
+        $held = NotificationLog::create([
+            'attendance_id' => $attendance->id,
+            'guardian_id' => $guardian->id,
+            'event_type' => 'check_in',
+            'idempotency_key' => 'TEST_TRANSIENT_KEEP_VALID',
+            'template_name' => 'siswa_hadir_v1',
+            'recipient_phone' => $guardian->wa_number,
+            'status' => 'held',
+            'attempts' => 0,
+        ]);
+
+        $service = app(FonnteNumberValidationService::class);
+        $result = $service->validateGuardian($guardian, 'manual_test');
+
+        $this->assertSame('unknown', $result['status']);
+        $this->assertSame('valid', $guardian->fresh()->wa_status);
+
+        // Nomor tetap dipercaya valid, sehingga pesan tertahan tetap dikirim.
+        $this->assertSame('queued', $held->fresh()->status);
+        Queue::assertPushed(SendWhatsAppNotificationJob::class, function ($job) use ($held) {
+            return $job->notificationId === $held->id;
+        });
+
+        // Status percobaan tetap dicatat apa adanya untuk audit/operasional.
+        $this->assertDatabaseHas('guardian_phone_validation_logs', [
+            'guardian_id' => $guardian->id,
+            'status' => 'unknown',
+            'validated_by' => 'manual_test',
+        ]);
+    }
+
     public function test_attendance_notification_queued_only_when_guardian_is_valid(): void
     {
         Queue::fake();
@@ -636,6 +693,41 @@ class GuardianWhatsAppValidationTest extends TestCase
 
         $this->assertEquals('valid', $g1->fresh()->wa_status);
         $this->assertEquals('invalid', $g2->fresh()->wa_status);
+    }
+
+    public function test_bulk_validation_transient_failure_does_not_downgrade_valid_guardian(): void
+    {
+        Config::set('whatsapp.validation.auto_validate_on_save', false);
+
+        Http::fake([
+            'https://api.fonnte.com/validate' => Http::response('gateway timeout', 504),
+        ]);
+
+        $guardian = Guardian::create([
+            'student_id' => $this->student->id,
+            'name' => 'Ayah Valid',
+            'relationship' => 'Ayah',
+            'wa_number' => '081234567890',
+            'wa_status' => 'valid',
+            'wa_validated_at' => now(),
+            'consent_at' => now(),
+            'active' => true,
+        ]);
+
+        $this->actingAs($this->adminUser)
+            ->postJson(route('guardians.bulk-validate'), [
+                'scope' => 'all',
+                'limit' => 50,
+            ])
+            ->assertOk()
+            ->assertJson([
+                'success' => true,
+                'processed' => 1,
+                'valid' => 1,
+                'unknown' => 0,
+            ]);
+
+        $this->assertSame('valid', $guardian->fresh()->wa_status);
     }
 
     public function test_validation_page_renders_client_side_datatables_without_server_pagination(): void

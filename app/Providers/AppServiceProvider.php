@@ -63,12 +63,12 @@ class AppServiceProvider extends ServiceProvider
             Log::critical('APP_DEBUG=true terdeteksi di lingkungan production. Segera matikan untuk mencegah kebocoran data sensitif.');
         }
 
-        // Rate limit endpoint ingest mesin absensi per token perangkat (fallback ke IP).
+        // Rate limit endpoint ingest mesin absensi per alamat IP.
+        // Jangan memakai header token sebagai kunci: nilainya dikendalikan klien,
+        // sehingga penyerang bisa membuka bucket baru hanya dengan mengganti token.
         // Batas sengaja longgar untuk mesin, namun melindungi dari request flooding.
         RateLimiter::for('fingerprint-ingest', function (Request $request) {
-            $key = $request->header('X-Device-Token') ?: $request->bearerToken() ?: $request->ip();
-
-            return Limit::perMinute(120)->by($key);
+            return Limit::perMinute(120)->by($request->ip());
         });
 
         // Rate limit endpoint polling progres (dipanggil berkala oleh dashboard).

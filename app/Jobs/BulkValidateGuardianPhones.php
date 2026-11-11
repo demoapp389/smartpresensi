@@ -96,13 +96,17 @@ class BulkValidateGuardianPhones implements ShouldQueue
                     'error' => 'Tidak ada respon dari pemrosesan batch.',
                 ];
 
+                // Jangan turunkan nomor yang sudah valid hanya karena gangguan
+                // sementara provider (status hasil = unknown).
+                $storedStatus = $validationService->resolveStoredStatus($guardian, $result);
+
                 $guardianRows[] = [
                     'id' => $guardian->id,
                     // Kolom wajib untuk cabang INSERT; tidak ikut di-update.
                     'student_id' => $guardian->student_id,
                     'name' => $guardian->name,
                     'wa_number' => $result['normalized'],
-                    'wa_status' => $result['status'],
+                    'wa_status' => $storedStatus,
                     'wa_validated_at' => $now,
                     'wa_validation_error' => $result['error'],
                 ];
@@ -120,10 +124,10 @@ class BulkValidateGuardianPhones implements ShouldQueue
                     'updated_at' => $now,
                 ];
 
-                if ($result['status'] === 'valid') {
+                if ($storedStatus === 'valid') {
                     $valid++;
                     $releasable[] = $guardian;
-                } elseif ($result['status'] === 'invalid') {
+                } elseif ($storedStatus === 'invalid') {
                     $invalid++;
                     $cancellable[] = $guardian;
                 } else {

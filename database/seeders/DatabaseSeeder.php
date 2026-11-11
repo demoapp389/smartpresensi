@@ -46,7 +46,8 @@ class DatabaseSeeder extends Seeder
                 'comm_key' => '0',
                 'timezone' => 'Asia/Jakarta',
                 'status' => 'active',
-                'secret_token' => 'x601_sec_token_school_solution_lan',
+                // Token dibuat acak oleh FingerprintDevice::booted() agar tidak
+                // ada kredensial bersama yang tertanam di repositori.
                 'last_seen_at' => now(),
                 'active' => true,
             ]

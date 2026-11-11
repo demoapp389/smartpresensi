@@ -216,13 +216,17 @@ class GuardianValidationController extends Controller
                 'error' => 'Tidak ada respon dari pemrosesan batch.',
             ];
 
+            // Jangan turunkan nomor yang sudah valid hanya karena gangguan
+            // sementara provider (status hasil = unknown).
+            $storedStatus = $this->validationService->resolveStoredStatus($guardian, $res);
+
             $guardianRows[] = [
                 'id' => $guardian->id,
                 // Kolom wajib diisi pada cabang INSERT; tidak ikut di-update.
                 'student_id' => $guardian->student_id,
                 'name' => $guardian->name,
                 'wa_number' => $res['normalized'],
-                'wa_status' => $res['status'],
+                'wa_status' => $storedStatus,
                 'wa_validated_at' => $now,
                 'wa_validation_error' => $res['error'],
             ];
@@ -240,10 +244,10 @@ class GuardianValidationController extends Controller
                 'updated_at' => $now,
             ];
 
-            if ($res['status'] === 'valid') {
+            if ($storedStatus === 'valid') {
                 $validCount++;
                 $releasable[] = $guardian;
-            } elseif ($res['status'] === 'invalid') {
+            } elseif ($storedStatus === 'invalid') {
                 $invalidCount++;
                 $cancellable[] = $guardian;
             } else {

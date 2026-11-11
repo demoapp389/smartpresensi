@@ -272,21 +272,45 @@ class FonnteNumberValidationService
     }
 
     /**
+     * Tentukan status yang aman disimpan dari hasil validasi.
+     *
+     * Status `unknown` berarti gangguan sementara (timeout/HTTP error), bukan
+     * bukti nomor tidak valid. Bila nomor sudah pernah `valid`, status lama
+     * dipertahankan agar notifikasi tidak tertahan lalu kedaluwarsa hanya
+     * karena satu kegagalan API. Status `invalid` tetap diturunkan karena itu
+     * hasil definitif dari provider.
+     *
+     * @param  array{status?: string}  $result
+     */
+    public function resolveStoredStatus(Guardian $guardian, array $result): string
+    {
+        $status = (string) ($result['status'] ?? 'unknown');
+
+        if ($status === 'unknown' && $guardian->wa_status === 'valid') {
+            return 'valid';
+        }
+
+        return $status;
+    }
+
+    /**
      * Validasi nomor untuk sebuah model Guardian dan catat log validasi.
      */
     public function validateGuardian(Guardian $guardian, string $validatedBy = 'system'): array
     {
         $result = $this->validateSingle($guardian->wa_number);
+        $storedStatus = $this->resolveStoredStatus($guardian, $result);
 
         // Update guardian
         $guardian->update([
             'wa_number' => $result['normalized'],
-            'wa_status' => $result['status'],
+            'wa_status' => $storedStatus,
             'wa_validated_at' => now(),
             'wa_validation_error' => $result['error'],
         ]);
 
-        // Catat log validasi
+        // Catat log validasi dengan status percobaan apa adanya agar gangguan
+        // provider tetap terlihat pada riwayat validasi.
         GuardianPhoneValidationLog::create([
             'guardian_id' => $guardian->id,
             'phone' => $result['normalized'],
@@ -296,10 +320,10 @@ class FonnteNumberValidationService
             'validated_by' => $validatedBy,
         ]);
 
-        // Tangani notifikasi yang tertahan (held)
-        if ($result['status'] === 'valid') {
+        // Tangani notifikasi yang tertahan (held) berdasarkan status tersimpan.
+        if ($storedStatus === 'valid') {
             $this->releaseHeldNotifications($guardian);
-        } elseif ($result['status'] === 'invalid') {
+        } elseif ($storedStatus === 'invalid') {
             $this->cancelHeldNotifications($guardian);
         }
 

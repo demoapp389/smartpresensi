@@ -270,13 +270,13 @@ class SyncPendingAttendanceCommand extends Command
                         ->where('device_users.student_id', $attendance->student_id);
                 });
 
-                // PIN yang belum dipetakan tidak punya device_user. Jika PIN sama
-                // dengan NIS, tetap anggap sebagai bukti scan siswa tersebut.
+                // PIN yang belum dipetakan tidak punya device_user, dan log yang
+                // mesinnya sudah dihapus memiliki device_id NULL sehingga join di
+                // atas tidak pernah cocok. Jika PIN sama dengan NIS, tetap anggap
+                // sebagai bukti scan siswa tersebut untuk SEMUA status blocking
+                // agar auto-alpa tidak berjalan saat masih ada scan menggantung.
                 if (is_string($nis) && $nis !== '') {
-                    $query->orWhere(function ($unmapped) use ($nis): void {
-                        $unmapped->where('status', AttendanceLog::STATUS_UNMAPPED)
-                            ->where('machine_user_id', $nis);
-                    });
+                    $query->orWhere('machine_user_id', $nis);
                 }
             })
             ->exists();

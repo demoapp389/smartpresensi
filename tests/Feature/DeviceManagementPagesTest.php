@@ -570,6 +570,29 @@ class DeviceManagementPagesTest extends TestCase
         $filtered->assertDontSee('Sinkronisasi siswa berhasil.', false);
     }
 
+    public function test_device_creation_audit_log_does_not_store_secret_token(): void
+    {
+        $this->actingAs($this->admin)
+            ->post(route('devices.store'), [
+                'name' => 'Mesin Audit Token',
+                'ip' => '10.10.10.77',
+                'port' => 4370,
+                'comm_key' => '0',
+                'timezone' => 'Asia/Jakarta',
+            ])
+            ->assertRedirect();
+
+        $device = FingerprintDevice::query()->where('ip', '10.10.10.77')->sole();
+        $audit = AuditLog::query()->where('action', 'create_device')->latest('id')->firstOrFail();
+
+        $this->assertIsArray($audit->after);
+        $this->assertArrayNotHasKey('secret_token', $audit->after);
+        $this->assertStringNotContainsString(
+            $device->secret_token,
+            (string) json_encode($audit->after)
+        );
+    }
+
     public function test_risky_device_actions_are_written_to_audit_log(): void
     {
         $this->actingAs($this->admin)

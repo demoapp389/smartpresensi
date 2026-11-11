@@ -95,6 +95,12 @@ class FingerprintIngestController extends Controller
     public function ping(Request $request): JsonResponse
     {
         $token = $request->header('X-Device-Token') ?? $request->bearerToken();
+
+        // Token kosong tidak boleh menjadi query `secret_token IS NULL`.
+        if (! $token) {
+            return response()->json(['status' => 'unauthorized'], 401);
+        }
+
         $device = FingerprintDevice::where('secret_token', $token)
             ->where('active', true)
             ->first();

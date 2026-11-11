@@ -25,6 +25,15 @@ class FingerprintDevice extends Model
         });
     }
 
+    /**
+     * Token tidak boleh ikut serialisasi (audit log, respons JSON, dsb).
+     *
+     * @var array<int, string>
+     */
+    protected $hidden = [
+        'secret_token',
+    ];
+
     protected $fillable = [
         'name',
         'ip',

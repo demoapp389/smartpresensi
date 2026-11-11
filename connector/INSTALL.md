@@ -31,7 +31,7 @@ device_ip=100.50.25.67
 device_port=4370
 comm_key=0
 api_url=http://127.0.0.1:8000/api/v1/fingerprint/ingest
-device_token=x601_sec_token_school_solution_lan
+device_token=<token dari halaman Kelola Mesin>
 poll_interval_seconds=5
 reconnect_interval_seconds=5
 local_api_port=4371
@@ -74,6 +74,11 @@ mode=poll
 multi-mesin siap pakai (memuat **semua mesin aktif**) dapat diunduh dari halaman
 **Kelola Mesin → Unduh connector_config.ini**; cukup simpan hasil unduhan apa adanya
 sebagai `connector_config.ini` di folder connector. Jangan menaruh token di repositori.
+
+Connector **tidak lagi punya token bawaan**. Tanpa `device_token`/`token`, connector
+tetap berjalan tetapi Laravel akan menolak ingest (HTTP 401/403); log connector
+menampilkan `[CONFIG WARN] device_token kosong`. Bila token bocor, buat ulang lewat
+tombol **Buat Ulang Token** di halaman mesin lalu perbarui file konfigurasi connector.
 
 Setiap mesin menyimpan watermark & offline buffer-nya sendiri di `state/<key>/`
 (mesin tunggal format lama tetap memakai `checkpoint.txt`/`offline_buffer.txt` di folder

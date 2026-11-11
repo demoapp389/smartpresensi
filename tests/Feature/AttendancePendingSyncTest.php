@@ -283,6 +283,33 @@ class AttendancePendingSyncTest extends TestCase
         ]);
     }
 
+    public function test_auto_alpa_skips_student_with_unresolved_scan_after_device_is_deleted(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-26 00:30:00', 'Asia/Jakarta'));
+
+        $student = $this->createStudent('11016', 'Siswa Scan Mesin Terhapus');
+        $attendance = $this->createPendingAttendance($student);
+
+        // device_id NULL meniru FK nullOnDelete saat mesin dihapus, sehingga join
+        // ke device_users tidak mungkin cocok lagi.
+        AttendanceLog::create([
+            'device_id' => null,
+            'machine_user_id' => $student->nis,
+            'occurred_at' => '2026-10-23 07:05:00',
+            'received_at' => now(),
+            'source_key' => 'auto-alpa-null-device-scan',
+            'status' => AttendanceLog::STATUS_UNPROCESSED,
+        ]);
+
+        $this->artisan('attendance:sync-pending')->assertSuccessful();
+
+        $this->assertSame('perlu_tinjauan', $attendance->fresh()->status);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'auto_alpa_batch',
+            'entity_id' => $attendance->id,
+        ]);
+    }
+
     public function test_auto_alpa_skips_student_with_unmapped_scan_matching_nis(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-10-26 00:30:00', 'Asia/Jakarta'));
