@@ -269,12 +269,7 @@
         </div>
 
         <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-3 text-xs">
-            <div class="flex items-center gap-3">
-                <span class="text-[12px] text-[var(--text-muted)]">
-                    Menampilkan {{ $attendances->firstItem() ?? 0 }}–{{ $attendances->lastItem() ?? 0 }} dari {{ $attendances->total() }} presensi
-                </span>
-                @include('partials.per-page', ['paginator' => $attendances])
-            </div>
+            @include('partials.per-page', ['paginator' => $attendances])
             <div>
                 {{ $attendances->links() }}
             </div>

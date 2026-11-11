@@ -198,7 +198,7 @@ class FingerprintDeviceController extends Controller
 
         // Filter diproses di server; pagination juga server-side agar halaman
         // tetap ringan meskipun riwayat sudah menumpuk.
-        $syncLogs = $query->paginate(25)->withQueryString();
+        $syncLogs = $query->paginate($this->resolvePerPage(25))->withQueryString();
 
         return view('devices.sync-history', compact('syncLogs', 'devices', 'selectedDeviceId', 'syncType', 'status'));
     }

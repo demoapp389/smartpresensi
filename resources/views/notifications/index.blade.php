@@ -249,12 +249,7 @@
         </div>
 
         <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-3 text-xs">
-            <div class="flex items-center gap-3">
-                <span class="text-[12px] text-[var(--text-muted)]">
-                    Menampilkan {{ $notifications->firstItem() ?? 0 }}–{{ $notifications->lastItem() ?? 0 }} dari {{ $notifications->total() }} pesan
-                </span>
-                @include('partials.per-page', ['paginator' => $notifications])
-            </div>
+            @include('partials.per-page', ['paginator' => $notifications])
             <div>
                 {{ $notifications->links() }}
             </div>

@@ -256,12 +256,7 @@
         </div>
 
         <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-3 text-xs">
-            <div class="flex items-center gap-3">
-                <span class="text-[12px] text-[var(--text-muted)]">
-                    Menampilkan {{ $logs->firstItem() ?? 0 }}–{{ $logs->lastItem() ?? 0 }} dari {{ $logs->total() }} log
-                </span>
-                @include('partials.per-page', ['paginator' => $logs])
-            </div>
+            @include('partials.per-page', ['paginator' => $logs])
             <div>
                 {{ $logs->links() }}
             </div>

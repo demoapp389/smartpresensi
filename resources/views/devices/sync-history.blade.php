@@ -143,9 +143,12 @@
             </table>
         </div>
 
-        @if($syncLogs->hasPages())
-            <div class="border-t border-[var(--border)] px-4 py-3">
-                {{ $syncLogs->links() }}
+        @if($syncLogs->total() > 0)
+            <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-3 text-xs">
+                @include('partials.per-page', ['paginator' => $syncLogs])
+                <div>
+                    {{ $syncLogs->links() }}
+                </div>
             </div>
         @endif
     </section>

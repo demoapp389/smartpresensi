@@ -20,17 +20,7 @@
             ->values();
     @endphp
 
-    <nav role="navigation" aria-label="{{ __('Pagination Navigation') }}" class="flex items-center justify-between gap-2">
-
-        <p class="m-0 text-xs text-[var(--text-muted)]">
-            @if ($paginator->firstItem())
-                Menampilkan <span class="font-semibold text-[var(--text)]">{{ $paginator->firstItem() }}</span>
-                - <span class="font-semibold text-[var(--text)]">{{ $paginator->lastItem() }}</span>
-                dari <span class="font-semibold text-[var(--text)]">{{ $paginator->total() }}</span>
-            @else
-                <span class="font-semibold text-[var(--text)]">{{ $paginator->count() }}</span>
-            @endif
-        </p>
+    <nav role="navigation" aria-label="{{ __('Pagination Navigation') }}" class="flex items-center justify-end gap-2">
 
         <div class="flex items-center gap-0.5">
             {{-- Previous Page Link --}}

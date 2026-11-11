@@ -333,12 +333,7 @@
 
                 @if($holidays->hasPages())
                 <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-3 text-xs bg-[var(--surface)]">
-                    <div class="flex items-center gap-3">
-                        <span class="text-[12px] text-[var(--text-muted)]">
-                            Menampilkan {{ $holidays->firstItem() ?? 0 }}–{{ $holidays->lastItem() ?? 0 }} dari {{ $holidays->total() }} libur
-                        </span>
-                        @include('partials.per-page', ['paginator' => $holidays])
-                    </div>
+                    @include('partials.per-page', ['paginator' => $holidays])
                     <div>
                         {{ $holidays->appends(['tab' => 'holidays'])->links() }}
                     </div>

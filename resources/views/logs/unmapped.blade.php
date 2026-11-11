@@ -90,12 +90,7 @@
         </div>
 
         <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-3 text-xs">
-            <div class="flex items-center gap-3">
-                <span class="text-[12px] text-[var(--text-muted)]">
-                    Menampilkan {{ $unmappedLogs->firstItem() ?? 0 }}–{{ $unmappedLogs->lastItem() ?? 0 }} dari {{ $unmappedLogs->total() }} scan
-                </span>
-                @include('partials.per-page', ['paginator' => $unmappedLogs])
-            </div>
+            @include('partials.per-page', ['paginator' => $unmappedLogs])
             <div>
                 {{ $unmappedLogs->links() }}
             </div>
