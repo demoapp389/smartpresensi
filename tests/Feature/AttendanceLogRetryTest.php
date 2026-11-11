@@ -131,6 +131,28 @@ class AttendanceLogRetryTest extends TestCase
         $this->assertSame('unprocessed', $futureLog->fresh()->status);
     }
 
+    public function test_retry_command_reopens_failed_logs_only_when_requested(): void
+    {
+        Carbon::setTestNow('2026-10-14 08:00:00');
+
+        $failedLog = $this->createLog('2026-10-14 07:05:00', 'failed');
+        $failedLog->update([
+            'processing_attempts' => 4,
+            'processing_note' => 'Gagal memproses log: error lama.',
+        ]);
+
+        // Tanpa opsi, log gagal permanen tidak boleh disentuh.
+        $this->artisan('attendance:retry-logs')->assertSuccessful();
+        $this->assertSame('failed', $failedLog->fresh()->status);
+
+        $this->artisan('attendance:retry-logs', ['--include-failed' => true])->assertSuccessful();
+
+        $failedLog->refresh();
+
+        $this->assertSame('processed', $failedLog->status);
+        $this->assertNull($failedLog->processing_note);
+    }
+
     public function test_admin_can_retry_failed_log_from_raw_log_page(): void
     {
         Carbon::setTestNow('2026-10-14 08:00:00');
