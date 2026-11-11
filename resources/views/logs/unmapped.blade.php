@@ -29,39 +29,40 @@
         </div>
     </div>
 
-    {{-- Filter dan paginasi dijalankan di server; hanya satu halaman dimuat. --}}
-    <form id="unmapped-filter" method="GET" action="{{ route('logs.unmapped') }}" class="flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div class="flex flex-wrap items-center gap-2">
-            <select name="device_id" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
-                <option value="">Semua Perangkat</option>
-                @foreach($devices as $d)
-                    <option value="{{ $d->id }}" {{ $deviceId == $d->id ? 'selected' : '' }}>{{ $d->name }}</option>
-                @endforeach
-            </select>
-
-            @if($deviceId || $search)
-                <a href="{{ route('logs.unmapped') }}" class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
-                    Reset
-                </a>
-            @endif
-        </div>
-
-        <div class="relative w-[220px] max-w-full">
-            <svg class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 16 16">
-                <circle cx="7" cy="7" r="5" stroke-width="1.5"/>
-                <path d="M11 11l3.5 3.5" stroke-width="1.5"/>
-            </svg>
-            <label for="unmapped_search" class="sr-only">Cari PIN mesin</label>
-            <input type="search" id="unmapped_search" name="search" value="{{ $search }}" placeholder="Cari…"
-                data-auto-submit-search
-                class="h-8 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--body-bg)] pl-8 pr-2.5 text-[13px] text-[var(--text)] outline-none transition focus:border-[var(--primary-accessible)] focus:ring-2 focus:ring-[var(--primary-soft)]">
-        </div>
-    </form>
-
     <section class="min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)] overflow-hidden">
         <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-4 py-3">
             <h2 class="text-xs font-bold text-[var(--text)]">Daftar Scan Belum Terpetakan</h2>
         </div>
+
+        {{-- Filter dan paginasi dijalankan di server; hanya satu halaman dimuat. --}}
+        <form id="unmapped-filter" method="GET" action="{{ route('logs.unmapped') }}"
+            class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-4 py-3 text-xs">
+            <div class="flex flex-wrap items-center gap-2">
+                <select name="device_id" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
+                    <option value="">Semua Perangkat</option>
+                    @foreach($devices as $d)
+                        <option value="{{ $d->id }}" {{ $deviceId == $d->id ? 'selected' : '' }}>{{ $d->name }}</option>
+                    @endforeach
+                </select>
+
+                @if($deviceId || $search)
+                    <a href="{{ route('logs.unmapped') }}" class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
+                        Reset
+                    </a>
+                @endif
+            </div>
+
+            <div class="relative w-[220px] max-w-full">
+                <svg class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 16 16">
+                    <circle cx="7" cy="7" r="5" stroke-width="1.5"/>
+                    <path d="M11 11l3.5 3.5" stroke-width="1.5"/>
+                </svg>
+                <label for="unmapped_search" class="sr-only">Cari PIN mesin</label>
+                <input type="search" id="unmapped_search" name="search" value="{{ $search }}" placeholder="Cari…"
+                    data-auto-submit-search
+                    class="h-8 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--body-bg)] pl-8 pr-2.5 text-[13px] text-[var(--text)] outline-none transition focus:border-[var(--primary-accessible)] focus:ring-2 focus:ring-[var(--primary-soft)]">
+            </div>
+        </form>
 
         <div>
             <table class="min-w-[650px] w-full text-left text-xs font-mono">

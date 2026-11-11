@@ -160,7 +160,10 @@ class FingerprintConnectorService
      *
      * Connector mengirim `last_success_age_seconds` (bebas zona waktu). Bila
      * tidak ada (versi lama), `last_success_at` dipakai sebagai cadangan;
-     * keduanya kosong diperlakukan sebagai "percayai connected".
+     * connector Windows lama hanya menulis `updated_at`, sehingga nilai itu
+     * juga dipakai agar status `connected: true` yang basi tidak dianggap
+     * online selamanya. Keduanya kosong diperlakukan sebagai "percayai
+     * connected".
      *
      * @param  array<string, mixed>  $entry
      */
@@ -173,18 +176,23 @@ class FingerprintConnectorService
             return (float) $age <= $staleAfter;
         }
 
-        $lastSuccessAt = $entry['last_success_at'] ?? null;
-        if (! is_string($lastSuccessAt) || $lastSuccessAt === '') {
-            return true;
+        foreach (['last_success_at', 'updated_at'] as $timestampKey) {
+            $timestamp = $entry[$timestampKey] ?? null;
+
+            if (! is_string($timestamp) || $timestamp === '') {
+                continue;
+            }
+
+            try {
+                $seen = Carbon::parse($timestamp);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            return $seen->greaterThanOrEqualTo(now()->subSeconds($staleAfter));
         }
 
-        try {
-            $seen = Carbon::parse($lastSuccessAt);
-        } catch (\Throwable) {
-            return true;
-        }
-
-        return $seen->greaterThanOrEqualTo(now()->subSeconds($staleAfter));
+        return true;
     }
 
     /**

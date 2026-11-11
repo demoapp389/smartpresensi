@@ -21,59 +21,13 @@
         </div>
     @endif
 
-    {{-- Filter dijalankan di server; hasil dibatasi per halaman. --}}
-    <form id="attendance-filter" method="GET" action="{{ route('attendances.index') }}" class="flex flex-wrap items-center gap-2 text-xs">
-        <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5">
-            <label for="date" class="text-[var(--text-secondary)] font-medium whitespace-nowrap">Tanggal:</label>
-            <input type="date" id="date" name="date" value="{{ $selectedDate }}" min="{{ $attendanceStartDate?->format('Y-m-d') }}" onchange="this.value && this.form.submit()" class="bg-transparent font-medium text-[var(--text)] focus:outline-none cursor-pointer text-xs">
-        </div>
-
+    <!-- Attendance Table Card -->
+    <section class="min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)] overflow-hidden">
         @php
             $currentUser = Auth::user();
             $isHomeroom = $currentUser?->isHomeroomTeacher() ?? false;
         @endphp
 
-        @if(! $isHomeroom)
-            <select name="class_id" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
-                <option value="">Semua Kelas</option>
-                @foreach($classes as $c)
-                    <option value="{{ $c->id }}" {{ $classId == $c->id ? 'selected' : '' }}>{{ $c->name }}</option>
-                @endforeach
-            </select>
-        @elseif($classes->isNotEmpty())
-            <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs">
-                <span class="text-[var(--text-secondary)] font-medium">Kelas:</span>
-                <span class="font-bold text-[var(--text)]">{{ $classes->first()->name }}</span>
-            </div>
-        @endif
-
-        <select name="status" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
-            <option value="">Semua Status</option>
-            <option value="hadir" {{ $status == 'hadir' ? 'selected' : '' }}>Hadir</option>
-            <option value="terlambat" {{ $status == 'terlambat' ? 'selected' : '' }}>Terlambat</option>
-            <option value="izin" {{ $status == 'izin' ? 'selected' : '' }}>Izin</option>
-            <option value="sakit" {{ $status == 'sakit' ? 'selected' : '' }}>Sakit</option>
-            <option value="alpa" {{ $status == 'alpa' ? 'selected' : '' }}>Alpa</option>
-            <option value="perlu_tinjauan" {{ $status == 'perlu_tinjauan' ? 'selected' : '' }}>Perlu Tinjauan</option>
-        </select>
-
-        <select name="out_status" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
-            <option value="">Semua Status Pulang</option>
-            <option value="tepat_waktu" {{ $outStatus == 'tepat_waktu' ? 'selected' : '' }}>Tepat Waktu</option>
-            <option value="pulang_cepat" {{ $outStatus == 'pulang_cepat' ? 'selected' : '' }}>Pulang Cepat</option>
-            <option value="belum_absen" {{ $outStatus == 'belum_absen' ? 'selected' : '' }}>Belum Absen Pulang</option>
-            <option value="perlu_verifikasi" {{ $outStatus == 'perlu_verifikasi' ? 'selected' : '' }}>Perlu Verifikasi</option>
-        </select>
-
-        @if((! $isHomeroom && $classId) || $status || $outStatus)
-            <a href="{{ route('attendances.index', ['date' => $selectedDate]) }}" class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
-                Reset
-            </a>
-        @endif
-    </form>
-
-    <!-- Attendance Table Card -->
-    <section class="min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)] overflow-hidden">
         <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-4 py-3">
             <h2 class="text-xs font-bold text-[var(--text)]">Daftar Kehadiran Siswa</h2>
 
@@ -100,6 +54,53 @@
                 </a>
             </div>
         </div>
+
+        {{-- Filter dijalankan di server; hasil dibatasi per halaman. --}}
+        <form id="attendance-filter" method="GET" action="{{ route('attendances.index') }}"
+            class="flex flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-4 py-3 text-xs">
+            <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5">
+                <label for="date" class="text-[var(--text-secondary)] font-medium whitespace-nowrap">Tanggal:</label>
+                <input type="date" id="date" name="date" value="{{ $selectedDate }}" min="{{ $attendanceStartDate?->format('Y-m-d') }}" onchange="this.value && this.form.submit()" class="bg-transparent font-medium text-[var(--text)] focus:outline-none cursor-pointer text-xs">
+            </div>
+
+            @if(! $isHomeroom)
+                <select name="class_id" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
+                    <option value="">Semua Kelas</option>
+                    @foreach($classes as $c)
+                        <option value="{{ $c->id }}" {{ $classId == $c->id ? 'selected' : '' }}>{{ $c->name }}</option>
+                    @endforeach
+                </select>
+            @elseif($classes->isNotEmpty())
+                <div class="flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs">
+                    <span class="text-[var(--text-secondary)] font-medium">Kelas:</span>
+                    <span class="font-bold text-[var(--text)]">{{ $classes->first()->name }}</span>
+                </div>
+            @endif
+
+            <select name="status" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
+                <option value="">Semua Status</option>
+                <option value="hadir" {{ $status == 'hadir' ? 'selected' : '' }}>Hadir</option>
+                <option value="terlambat" {{ $status == 'terlambat' ? 'selected' : '' }}>Terlambat</option>
+                <option value="izin" {{ $status == 'izin' ? 'selected' : '' }}>Izin</option>
+                <option value="sakit" {{ $status == 'sakit' ? 'selected' : '' }}>Sakit</option>
+                <option value="alpa" {{ $status == 'alpa' ? 'selected' : '' }}>Alpa</option>
+                <option value="perlu_tinjauan" {{ $status == 'perlu_tinjauan' ? 'selected' : '' }}>Perlu Tinjauan</option>
+            </select>
+
+            <select name="out_status" onchange="this.form.submit()" class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
+                <option value="">Semua Status Pulang</option>
+                <option value="tepat_waktu" {{ $outStatus == 'tepat_waktu' ? 'selected' : '' }}>Tepat Waktu</option>
+                <option value="pulang_cepat" {{ $outStatus == 'pulang_cepat' ? 'selected' : '' }}>Pulang Cepat</option>
+                <option value="belum_absen" {{ $outStatus == 'belum_absen' ? 'selected' : '' }}>Belum Absen Pulang</option>
+                <option value="perlu_verifikasi" {{ $outStatus == 'perlu_verifikasi' ? 'selected' : '' }}>Perlu Verifikasi</option>
+            </select>
+
+            @if((! $isHomeroom && $classId) || $status || $outStatus)
+                <a href="{{ route('attendances.index', ['date' => $selectedDate]) }}" class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
+                    Reset
+                </a>
+            @endif
+        </form>
 
         @php
             $showClassCol = empty($classId) && ! $isHomeroom;

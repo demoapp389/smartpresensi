@@ -65,6 +65,41 @@ class FingerprintConnectivityStatusTest extends TestCase
         $this->assertTrue($service->checkConnectivity($this->device('10.0.0.1', 4370)));
     }
 
+    public function test_heartbeat_trusts_fresh_updated_at_from_legacy_windows_connector(): void
+    {
+        $service = $this->service([
+            'status' => 'ok',
+            'devices' => [
+                [
+                    'ip' => '10.0.0.1',
+                    'port' => 4370,
+                    'connected' => true,
+                    'updated_at' => now()->subSeconds(5)->toDateTimeString(),
+                ],
+            ],
+        ]);
+
+        $this->assertTrue($service->checkConnectivity($this->device('10.0.0.1', 4370)));
+    }
+
+    public function test_heartbeat_treats_stale_updated_at_from_legacy_windows_connector_as_offline(): void
+    {
+        $service = $this->service([
+            'status' => 'ok',
+            'devices' => [
+                [
+                    'ip' => '10.0.0.1',
+                    'port' => 4370,
+                    'connected' => true,
+                    'updated_at' => now()->subMinutes(10)->toDateTimeString(),
+                ],
+            ],
+        ]);
+
+        $this->assertFalse($service->checkConnectivity($this->device('10.0.0.1', 4370)));
+        $this->assertSame(0, $service->socketChecks);
+    }
+
     public function test_heartbeat_trusts_connector_when_device_is_disconnected(): void
     {
         $service = $this->service([
