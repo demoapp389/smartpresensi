@@ -229,6 +229,40 @@ class NotificationBulkOperationsTest extends TestCase
         $response->assertDontSee('Failed');
     }
 
+    public function test_outbox_hides_held_and_cancelled_by_default(): void
+    {
+        NotificationLog::create([
+            'attendance_id' => $this->notifFailed1->attendance_id,
+            'guardian_id' => $this->notifFailed1->guardian_id,
+            'event_type' => 'check_in',
+            'idempotency_key' => 'HELD_'.uniqid(),
+            'template_name' => 'check_in',
+            'recipient_phone' => $this->notifFailed1->recipient_phone,
+            'payload' => [],
+            'status' => 'held',
+        ]);
+
+        NotificationLog::create([
+            'attendance_id' => $this->notifFailed1->attendance_id,
+            'guardian_id' => $this->notifFailed1->guardian_id,
+            'event_type' => 'check_out',
+            'idempotency_key' => 'CANCELLED_'.uniqid(),
+            'template_name' => 'check_out',
+            'recipient_phone' => $this->notifFailed1->recipient_phone,
+            'payload' => [],
+            'status' => 'cancelled',
+        ]);
+
+        $default = $this->actingAs($this->operator)->get(route('notifications.index'));
+        $default->assertOk();
+        $default->assertViewHas('notifications', fn (LengthAwarePaginator $logs): bool => $logs->total() === 3);
+
+        $held = $this->actingAs($this->operator)->get(route('notifications.index', ['status' => 'held']));
+        $held->assertOk();
+        $held->assertViewHas('notifications', fn (LengthAwarePaginator $logs): bool => $logs->total() === 1
+            && $logs->first()?->status === 'held');
+    }
+
     public function test_outbox_uses_server_side_pagination(): void
     {
         $response = $this->actingAs($this->operator)->get(route('notifications.index'));

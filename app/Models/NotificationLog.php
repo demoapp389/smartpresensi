@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Collection;
@@ -10,6 +12,7 @@ use Illuminate\Support\Collection;
 class NotificationLog extends Model
 {
     use HasFactory;
+    use MassPrunable;
 
     protected $fillable = [
         'attendance_id',
@@ -42,6 +45,28 @@ class NotificationLog extends Model
     public function guardian(): BelongsTo
     {
         return $this->belongsTo(Guardian::class);
+    }
+
+    /**
+     * Baris outbox yang boleh dipangkas otomatis oleh `model:prune`.
+     *
+     * Status gagal disimpan lebih lama agar masih bisa ditelusuri operator,
+     * sedangkan status lain cukup satu bulan.
+     */
+    public function prunable(): Builder
+    {
+        $days = max(1, (int) config('whatsapp.retention.days', 30));
+        $failedDays = max(1, (int) config('whatsapp.retention.failed_days', 90));
+
+        return static::query()->where(function (Builder $query) use ($days, $failedDays): void {
+            $query->where(function (Builder $query) use ($days): void {
+                $query->where('status', '!=', 'failed')
+                    ->where('created_at', '<', now()->subDays($days));
+            })->orWhere(function (Builder $query) use ($failedDays): void {
+                $query->where('status', 'failed')
+                    ->where('created_at', '<', now()->subDays($failedDays));
+            });
+        });
     }
 
     /**

@@ -249,7 +249,7 @@ class AttendanceLogRetryTest extends TestCase
         $this->assertSame(Attendance::POLICY_VERSION_PENDING, $attendance->policy_version);
         $this->assertNull($attendance->override_reason);
         $this->assertDatabaseMissing('audit_logs', [
-            'action' => 'auto_alpa_pending_attendance',
+            'action' => 'auto_alpa_batch',
             'entity_id' => $attendance->id,
         ]);
     }

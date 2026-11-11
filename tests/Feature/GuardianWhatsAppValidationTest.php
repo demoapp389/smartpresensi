@@ -212,7 +212,7 @@ class GuardianWhatsAppValidationTest extends TestCase
         Queue::assertPushed(ValidateGuardianPhoneJob::class);
     }
 
-    public function test_attendance_notification_cancelled_for_invalid_guardian_without_affecting_attendance(): void
+    public function test_attendance_notification_skipped_for_invalid_guardian_without_affecting_attendance(): void
     {
         Queue::fake();
 
@@ -237,9 +237,10 @@ class GuardianWhatsAppValidationTest extends TestCase
         $notificationService = app(WhatsAppNotificationService::class);
         $logs = $notificationService->queueAttendanceNotifications($attendance, 'check_in');
 
-        $this->assertCount(1, $logs);
-        $this->assertEquals('cancelled', $logs[0]->status);
-        $this->assertStringContainsString('tidak valid', $logs[0]->error_message);
+        // Nomor tidak valid tidak akan pernah dikirim, jadi tidak dibuatkan
+        // baris outbox sama sekali agar riwayat notifikasi tidak penuh sampah.
+        $this->assertCount(0, $logs);
+        $this->assertDatabaseCount('notification_logs', 0);
 
         // Tidak boleh kirim pesan WhatsApp
         Queue::assertNotPushed(SendWhatsAppNotificationJob::class);

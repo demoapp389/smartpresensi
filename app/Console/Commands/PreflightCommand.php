@@ -91,6 +91,21 @@ class PreflightCommand extends Command
             }
         }
 
+        // 6. Ukuran tabel log: peringatan dini sebelum halaman melambat.
+        foreach (['audit_logs' => 100000, 'notification_logs' => 50000] as $table => $threshold) {
+            try {
+                $rows = DB::table($table)->count();
+
+                if ($rows > $threshold) {
+                    $this->warn("   [WARN] Tabel {$table} berisi {$rows} baris (ambang {$threshold}). Jalankan: php artisan model:prune --pretend");
+                } else {
+                    $this->info("   [OK] Tabel {$table}: {$rows} baris.");
+                }
+            } catch (\Throwable $e) {
+                $this->warn("   [WARN] Tidak dapat menghitung baris {$table}: ".$e->getMessage());
+            }
+        }
+
         if ($failures !== []) {
             $this->newLine();
             $this->error('Preflight GAGAL:');

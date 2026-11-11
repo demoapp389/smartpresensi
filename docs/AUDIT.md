@@ -84,6 +84,21 @@ Dokumen audit lama sudah diringkas ke sini lalu dihapus agar tidak menjadi sumbe
 - `.gitignore` dibersihkan dari entri usang; `deploy/templates/env.template` diselaraskan
   dengan `.env.example` (enkripsi sesi, retry antrean, dan kunci presensi).
 
+## Pengurangan Volume Log (11 November 2026)
+
+- Audit Auto-Alpa tidak lagi ditulis per siswa. `attendance:sync-pending` menulis satu
+  baris `auto_alpa_batch` per eksekusi berisi jumlah dan rentang ID presensi; jejak per
+  siswa tetap melekat pada `attendances.policy_version` dan `override_reason`.
+- `AuditLog` dan `NotificationLog` memakai `MassPrunable`. `model:prune` dijadwalkan
+  harian 03:45: aksi sistem 30 hari, aksi pengguna 365 hari, outbox 30 hari
+  (status `failed` 90 hari). Ambang dapat diubah lewat `AUDIT_*` dan `WA_LOG_*` di `.env`.
+- Nomor wali berstatus `invalid` tidak lagi dibuatkan baris outbox `cancelled` karena
+  pesan tersebut tidak akan pernah dikirim.
+- Halaman Audit menyembunyikan aksi sistem secara default (toggle "Tampilkan aksi
+  sistem"), dan halaman Outbox menyembunyikan `held`/`cancelled` kecuali difilter.
+- `app:preflight` memberi peringatan bila `audit_logs` > 100.000 atau
+  `notification_logs` > 50.000 baris.
+
 ## Tindakan yang Sudah Diverifikasi
 
 - Webhook WhatsApp tidak lagi menerima request tanpa kredensial.

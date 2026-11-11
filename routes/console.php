@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\AuditLog;
+use App\Models\NotificationLog;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -23,6 +25,11 @@ Schedule::command('whatsapp:revalidate-guardians')->daily();
 
 // Rotasi log connector/worker, pangkas offline buffer, dan bersihkan berkas state lama.
 Schedule::command('fingerprint:prune-resources')->dailyAt('03:30');
+
+// Pangkas log audit dan outbox WhatsApp sesuai kebijakan retensi
+// (config/audit.php dan config/whatsapp.php).
+Schedule::command('model:prune', ['--model' => [AuditLog::class, NotificationLog::class]])
+    ->dailyAt('03:45');
 
 // Batalkan notifikasi WhatsApp 'held' yang kedaluwarsa agar tidak menggantung permanen
 // bila nomor wali tidak pernah divalidasi ulang.

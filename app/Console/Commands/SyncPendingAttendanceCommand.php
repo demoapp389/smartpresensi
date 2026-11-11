@@ -139,6 +139,8 @@ class SyncPendingAttendanceCommand extends Command
             ]);
 
         $finalized = 0;
+        $firstAttendanceId = null;
+        $lastAttendanceId = null;
 
         $periodService->applyTo(Attendance::query(), 'school_date')
             ->where('status', 'perlu_tinjauan')
@@ -147,7 +149,7 @@ class SyncPendingAttendanceCommand extends Command
             ->where('is_manual_override', false)
             ->whereDate('school_date', '<', $today->toDateString())
             ->orderBy('id')
-            ->chunkById(200, function (Collection $attendances) use ($today, $dryRun, $schedules, $periods, $holidays, $timezone, &$finalized): void {
+            ->chunkById(200, function (Collection $attendances) use ($today, $dryRun, $schedules, $periods, $holidays, $timezone, &$finalized, &$firstAttendanceId, &$lastAttendanceId): void {
                 foreach ($attendances as $attendance) {
                     if ($dryRun) {
                         if ($this->isReadyForAutoAlpa($attendance, $schedules, $periods, $holidays, $timezone)) {
@@ -157,7 +159,7 @@ class SyncPendingAttendanceCommand extends Command
                         continue;
                     }
 
-                    $finalized += DB::transaction(function () use ($attendance, $today, $schedules, $periods, $holidays, $timezone): int {
+                    $finalized += DB::transaction(function () use ($attendance, $today, $schedules, $periods, $holidays, $timezone, &$firstAttendanceId, &$lastAttendanceId): int {
                         $locked = Attendance::query()
                             ->whereKey($attendance->id)
                             ->where('status', 'perlu_tinjauan')
@@ -172,8 +174,6 @@ class SyncPendingAttendanceCommand extends Command
                             return 0;
                         }
 
-                        $before = $this->auditState($locked);
-
                         $locked->update([
                             'status' => 'alpa',
                             'check_in_status' => null,
@@ -185,21 +185,34 @@ class SyncPendingAttendanceCommand extends Command
                             'policy_version' => Attendance::POLICY_VERSION_AUTO_ALPA,
                         ]);
 
-                        AuditLog::create([
-                            'actor_id' => null,
-                            'action' => 'auto_alpa_pending_attendance',
-                            'entity_type' => 'Attendance',
-                            'entity_id' => $locked->id,
-                            'before' => $before,
-                            'after' => $this->auditState($locked),
-                            'ip_address' => null,
-                            'created_at' => now(),
-                        ]);
+                        $firstAttendanceId ??= $locked->id;
+                        $lastAttendanceId = $locked->id;
 
                         return 1;
                     });
                 }
             });
+
+        // Satu baris audit per eksekusi, bukan per siswa. Jejak per siswa sudah
+        // melekat pada baris attendances (policy_version + override_reason),
+        // sehingga ribuan baris audit harian tidak lagi diperlukan.
+        if (! $dryRun && $finalized > 0) {
+            AuditLog::create([
+                'actor_id' => null,
+                'action' => 'auto_alpa_batch',
+                'entity_type' => 'Attendance',
+                'entity_id' => $firstAttendanceId,
+                'before' => null,
+                'after' => [
+                    'count' => $finalized,
+                    'before_school_date' => $today->toDateString(),
+                    'first_attendance_id' => $firstAttendanceId,
+                    'last_attendance_id' => $lastAttendanceId,
+                ],
+                'ip_address' => null,
+                'created_at' => now(),
+            ]);
+        }
 
         return $finalized;
     }
@@ -277,25 +290,5 @@ class SyncPendingAttendanceCommand extends Command
     private function isHoliday(Carbon $date): bool
     {
         return SchoolHoliday::isHoliday($date);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function auditState(Attendance $attendance): array
-    {
-        return [
-            'status' => $attendance->status,
-            'check_in_at' => $attendance->check_in_at?->format('Y-m-d H:i:s'),
-            'check_out_at' => $attendance->check_out_at?->format('Y-m-d H:i:s'),
-            'check_in_status' => $attendance->check_in_status,
-            'check_out_status' => $attendance->check_out_status,
-            'late_minutes' => $attendance->late_minutes,
-            'early_leave_minutes' => $attendance->early_leave_minutes,
-            'is_manual_override' => $attendance->is_manual_override,
-            'override_reason' => $attendance->override_reason,
-            'operator_id' => $attendance->operator_id,
-            'policy_version' => $attendance->policy_version,
-        ];
     }
 }

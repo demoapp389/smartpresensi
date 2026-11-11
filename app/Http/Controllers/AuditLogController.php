@@ -14,8 +14,15 @@ class AuditLogController extends Controller
         $entityType = (string) $request->input('entity_type', '');
         $dateFrom = (string) $request->input('date_from', '');
         $dateTo = (string) $request->input('date_to', '');
+        $showSystem = $request->boolean('show_system');
 
         $query = AuditLog::with('actor')->latest('created_at');
+
+        // Aksi sistem (Auto-Alpa, pemrosesan log gagal) sangat banyak dan bukan
+        // jejak tindakan pengguna, jadi disembunyikan kecuali diminta.
+        if (! $showSystem) {
+            $query->humanActions();
+        }
 
         if ($action !== '') {
             $query->where('action', $action);
@@ -46,6 +53,7 @@ class AuditLogController extends Controller
             'entityType',
             'dateFrom',
             'dateTo',
+            'showSystem',
             'actions',
             'entityTypes',
         ));

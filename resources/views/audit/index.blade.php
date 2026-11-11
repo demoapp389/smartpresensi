@@ -44,7 +44,14 @@
             Terapkan
         </button>
 
-        @if($action !== '' || $entityType !== '' || $dateFrom !== '' || $dateTo !== '')
+        <label class="inline-flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs font-medium text-[var(--text-secondary)] cursor-pointer">
+            <input type="checkbox" name="show_system" value="1" {{ $showSystem ? 'checked' : '' }}
+                   onchange="this.form.submit()"
+                   class="size-3.5 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary-accessible)] cursor-pointer">
+            Tampilkan aksi sistem
+        </label>
+
+        @if($action !== '' || $entityType !== '' || $dateFrom !== '' || $dateTo !== '' || $showSystem)
             <a href="{{ route('audit.index') }}" class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
                 Reset
             </a>

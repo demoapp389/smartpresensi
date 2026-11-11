@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Attendance;
 use App\Models\AttendanceLog;
+use App\Models\AuditLog;
 use App\Models\DeviceUser;
 use App\Models\FingerprintDevice;
 use App\Models\SchoolClass;
@@ -168,9 +169,35 @@ class AttendancePendingSyncTest extends TestCase
         $this->assertSame('perlu_tinjauan', $currentPending->fresh()->status);
 
         $this->assertDatabaseHas('audit_logs', [
-            'action' => 'auto_alpa_pending_attendance',
+            'action' => 'auto_alpa_batch',
             'entity_id' => $oldNoScan->id,
         ]);
+    }
+
+    public function test_auto_alpa_writes_one_summary_audit_row_per_run(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-26 00:30:00', 'Asia/Jakarta'));
+
+        $students = collect(['11021', '11022', '11023'])->map(
+            fn (string $nis): Student => $this->createStudent($nis, 'Siswa Batch '.$nis)
+        );
+
+        $attendanceIds = $students->map(fn (Student $student): int => Attendance::create([
+            'student_id' => $student->id,
+            'school_date' => '2026-10-23',
+            'status' => 'perlu_tinjauan',
+            'policy_version' => 'v1.1',
+        ])->id);
+
+        $this->artisan('attendance:sync-pending')->assertSuccessful();
+
+        $this->assertSame(3, Attendance::where('status', 'alpa')->count());
+
+        $audit = AuditLog::query()->where('action', 'auto_alpa_batch')->sole();
+
+        $this->assertSame(3, $audit->after['count']);
+        $this->assertSame($attendanceIds->min(), $audit->after['first_attendance_id']);
+        $this->assertSame($attendanceIds->max(), $audit->after['last_attendance_id']);
     }
 
     public function test_auto_alpa_skips_student_with_unprocessed_scan(): void
@@ -218,7 +245,7 @@ class AttendancePendingSyncTest extends TestCase
         $this->assertSame('perlu_tinjauan', $attendance->status);
         $this->assertNull($attendance->override_reason);
         $this->assertDatabaseMissing('audit_logs', [
-            'action' => 'auto_alpa_pending_attendance',
+            'action' => 'auto_alpa_batch',
             'entity_id' => $attendance->id,
         ]);
     }
@@ -251,7 +278,7 @@ class AttendancePendingSyncTest extends TestCase
 
         $this->assertSame('perlu_tinjauan', $attendance->fresh()->status);
         $this->assertDatabaseMissing('audit_logs', [
-            'action' => 'auto_alpa_pending_attendance',
+            'action' => 'auto_alpa_batch',
             'entity_id' => $attendance->id,
         ]);
     }
@@ -277,7 +304,7 @@ class AttendancePendingSyncTest extends TestCase
 
         $this->assertSame('perlu_tinjauan', $attendance->fresh()->status);
         $this->assertDatabaseMissing('audit_logs', [
-            'action' => 'auto_alpa_pending_attendance',
+            'action' => 'auto_alpa_batch',
             'entity_id' => $attendance->id,
         ]);
     }
@@ -303,7 +330,7 @@ class AttendancePendingSyncTest extends TestCase
 
         $this->assertSame('alpa', $attendance->fresh()->status);
         $this->assertDatabaseHas('audit_logs', [
-            'action' => 'auto_alpa_pending_attendance',
+            'action' => 'auto_alpa_batch',
             'entity_id' => $attendance->id,
         ]);
     }

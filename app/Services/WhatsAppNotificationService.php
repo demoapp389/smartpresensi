@@ -78,18 +78,18 @@ class WhatsAppNotificationService
                 default => 'siswa_notifikasi_v1',
             };
 
-            // Tentukan status awal berdasarkan validitas nomor WA wali (menghemat kuota)
-            $initialStatus = match ($guardian->wa_status) {
-                'valid' => 'queued',
-                'invalid' => 'cancelled',
-                default => 'held', // 'pending' atau 'unknown' ditahan sementara
-            };
+            // Tentukan status awal berdasarkan validitas nomor WA wali (menghemat kuota).
+            // Nomor yang sudah terbukti tidak valid tidak akan pernah dikirim, jadi
+            // tidak dibuatkan baris outbox sama sekali.
+            if ($guardian->wa_status === 'invalid') {
+                continue;
+            }
 
-            $errorMessage = match ($guardian->wa_status) {
-                'invalid' => 'Nomor WhatsApp wali tidak valid / tidak terdaftar di aplikasi WhatsApp. Pengiriman dilewati untuk menghemat kuota.',
-                'pending', 'unknown' => 'Menunggu hasil validasi nomor WhatsApp orang tua sebelum pengiriman.',
-                default => null,
-            };
+            $initialStatus = $guardian->wa_status === 'valid' ? 'queued' : 'held';
+
+            $errorMessage = $initialStatus === 'held'
+                ? 'Menunggu hasil validasi nomor WhatsApp orang tua sebelum pengiriman.'
+                : null;
 
             // Pakai waktu scan siswa (masuk/pulang) agar pesan menampilkan jam absen sebenarnya,
             // bukan waktu outbox dibuat saat antrean tertunda.

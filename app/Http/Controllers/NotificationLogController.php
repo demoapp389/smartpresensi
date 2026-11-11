@@ -45,6 +45,13 @@ class NotificationLogController extends Controller
 
         $query = $this->applyFilters($query, $request);
 
+        // Baris 'held' dan 'cancelled' bukan pesan yang dikirim: held menunggu
+        // validasi nomor dan cancelled tidak akan pernah dikirim. Keduanya tetap
+        // bisa dilihat lewat filter status agar daftar default tidak penuh.
+        if (blank($status)) {
+            $query->whereNotIn('status', ['held', 'cancelled']);
+        }
+
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('recipient_phone', 'like', "%{$search}%")

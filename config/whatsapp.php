@@ -72,6 +72,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Retensi Riwayat Notifikasi
+    |--------------------------------------------------------------------------
+    |
+    | Outbox dipangkas otomatis oleh `php artisan model:prune`. Baris gagal
+    | disimpan lebih lama agar masih bisa ditelusuri operator.
+    |
+    */
+
+    'retention' => [
+        'days' => (int) env('WA_LOG_RETENTION_DAYS', 30),
+        'failed_days' => (int) env('WA_LOG_FAILED_RETENTION_DAYS', 90),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Pesan Template Standar (PRD FR-12)
     |--------------------------------------------------------------------------
     |
