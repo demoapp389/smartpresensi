@@ -272,6 +272,18 @@ class NotificationBulkOperationsTest extends TestCase
         $this->assertStringNotContainsString('data-datatable', $response->getContent());
     }
 
+    public function test_outbox_filters_by_search_query(): void
+    {
+        $response = $this->actingAs($this->operator)->get(route('notifications.index', [
+            'search' => $this->notifFailed1->idempotency_key,
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('name="search"', false);
+        $response->assertSee($this->notifFailed1->idempotency_key);
+        $response->assertDontSee($this->notifFailed2->idempotency_key);
+    }
+
     public function test_status_counts_helper_groups_by_status(): void
     {
         $counts = NotificationLog::statusCounts();

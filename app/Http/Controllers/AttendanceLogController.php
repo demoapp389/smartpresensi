@@ -75,14 +75,15 @@ class AttendanceLogController extends Controller
         $dateInput = in_array($date, ['', 'all'], true) ? '' : $date;
         $deviceId = $request->input('device_id', '');
         $status = $requestedStatus;
-        $isFiltered = $rawDate !== null || $deviceId !== '' || $status !== '';
+        $search = (string) $request->input('search', '');
+        $isFiltered = $rawDate !== null || $deviceId !== '' || $status !== '' || $search !== '';
 
         $timeReviewCount = $this->periodService
             ->applyTo(AttendanceLog::query(), 'occurred_at')
             ->where('status', AttendanceLog::STATUS_NEEDS_REVIEW)
             ->count();
 
-        return view('logs.raw', compact('logs', 'devices', 'dateInput', 'deviceId', 'status', 'isFiltered', 'timeReviewCount'));
+        return view('logs.raw', compact('logs', 'devices', 'dateInput', 'deviceId', 'status', 'search', 'isFiltered', 'timeReviewCount'));
     }
 
     public function retry(AttendanceLog $log, AttendanceLogProcessingService $processor): RedirectResponse

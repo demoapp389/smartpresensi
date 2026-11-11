@@ -342,6 +342,70 @@ class Phase2FeaturesTest extends TestCase
         $this->assertStringContainsString('Menampilkan', $html);
     }
 
+    public function test_raw_log_page_filters_by_search_query(): void
+    {
+        $admin = User::where('role', 'admin')->first();
+        $device = FingerprintDevice::first();
+        $occurredAt = Carbon::now('Asia/Jakarta');
+
+        AttendanceLog::create([
+            'device_id' => $device->id,
+            'machine_user_id' => 'SEARCH-RAW-1',
+            'occurred_at' => $occurredAt,
+            'received_at' => $occurredAt->copy()->addMinute(),
+            'source_key' => 'search-raw-1',
+            'status' => 'processed',
+        ]);
+
+        AttendanceLog::create([
+            'device_id' => $device->id,
+            'machine_user_id' => 'OTHER-RAW-2',
+            'occurred_at' => $occurredAt,
+            'received_at' => $occurredAt->copy()->addMinute(),
+            'source_key' => 'other-raw-2',
+            'status' => 'processed',
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('logs.raw', ['search' => 'SEARCH-RAW-1']));
+
+        $response->assertOk();
+        $response->assertSee('name="search"', false);
+        $response->assertSee('SEARCH-RAW-1');
+        $response->assertDontSee('OTHER-RAW-2');
+    }
+
+    public function test_unmapped_log_page_filters_by_search_query(): void
+    {
+        $admin = User::where('role', 'admin')->first();
+        $device = FingerprintDevice::first();
+        $occurredAt = Carbon::now('Asia/Jakarta');
+
+        AttendanceLog::create([
+            'device_id' => $device->id,
+            'machine_user_id' => 'SEARCH-UNMAPPED-1',
+            'occurred_at' => $occurredAt,
+            'received_at' => $occurredAt->copy()->addMinute(),
+            'source_key' => 'search-unmapped-1',
+            'status' => 'unmapped',
+        ]);
+
+        AttendanceLog::create([
+            'device_id' => $device->id,
+            'machine_user_id' => 'OTHER-UNMAPPED-2',
+            'occurred_at' => $occurredAt,
+            'received_at' => $occurredAt->copy()->addMinute(),
+            'source_key' => 'other-unmapped-2',
+            'status' => 'unmapped',
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('logs.unmapped', ['search' => 'SEARCH-UNMAPPED-1']));
+
+        $response->assertOk();
+        $response->assertSee('name="search"', false);
+        $response->assertSee('SEARCH-UNMAPPED-1');
+        $response->assertDontSee('OTHER-UNMAPPED-2');
+    }
+
     public function test_correction_page_renders_client_side_datatables_without_server_pagination(): void
     {
         $admin = User::where('role', 'admin')->first();

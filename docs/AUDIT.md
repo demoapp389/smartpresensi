@@ -114,6 +114,7 @@ Dokumen audit lama sudah diringkas ke sini lalu dihapus agar tidak menjadi sumbe
 - **Dependensi:** `laravel/tinker` dipindah ke `require-dev` agar tidak terpasang pada deployment produksi tanpa dev dependency.
 - **UI:** breadcrumb hanya dirender di area konten (topbar tanpa breadcrumb), dropdown jumlah baris tetap dipertahankan, opsi filter status raw log tidak lagi duplikat, dan label DataTables diseragamkan ke bahasa Indonesia.
 - **Performa:** Data Siswa & Wali dan Validasi Nomor Wali memakai pagination server-side dengan `per_page` dan pencarian di server, sehingga browser tidak lagi memuat seluruh baris; pemilihan massal berlaku untuk baris pada halaman aktif.
+- **Pencarian:** Log Scan Mentah, Log Unmapped, dan Outbox WhatsApp kini menampilkan kotak pencarian di kanan toolbar yang mengirim filter `search` ke server (PIN mesin untuk log, nomor/nama/kunci idempotensi untuk outbox), meniru perilaku kotak pencarian DataTables.
 - **Ekspor:** `SimpleXlsxExporter` menerima `iterable` dan menulis worksheet bertahap ke file sementara, sehingga ekspor rekap presensi mengalirkan baris dari query tanpa menumpuk array baris atau XML sheet di memori.
 
 ## Tindakan yang Sudah Diverifikasi
