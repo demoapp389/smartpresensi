@@ -131,7 +131,13 @@ class FingerprintIngestService
                 ->all();
 
             $missingKeys = array_values(array_diff(array_keys($rows), $storedKeys));
-            $acceptedCount = count($storedKeys);
+
+            // `accepted` menghitung entri yang dikirim (termasuk baris duplikat),
+            // bukan kunci unik. Connector C# lama menganggap batch selesai hanya
+            // bila `accepted` sama dengan jumlah log yang dikirim; bila lebih
+            // kecil, offline buffer-nya tidak pernah dikosongkan dan terus
+            // diputar ulang setiap siklus walau mesin sedang mati.
+            $acceptedCount = count($logs) - count($missingKeys);
         } else {
             $insertedCount = 0;
             $acceptedCount = 0;

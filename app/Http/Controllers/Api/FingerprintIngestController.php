@@ -60,7 +60,11 @@ class FingerprintIngestController extends Controller
         $ingestResult = $ingestService->ingestBatch(
             $device,
             $validated['logs'],
-            (bool) ($validated['live'] ?? true),
+            // Connector Python selalu mengirim flag `live`. Connector C# lama
+            // tidak mengirimnya dan payload-nya bisa berasal dari offline buffer
+            // yang diputar ulang saat mesin mati, sehingga ketiadaan flag tidak
+            // boleh diperlakukan sebagai bukti mesin sedang terhubung.
+            (bool) ($validated['live'] ?? false),
         );
 
         // 2. Proses log di latar belakang (PRD FR-09). Connector hanya menunggu

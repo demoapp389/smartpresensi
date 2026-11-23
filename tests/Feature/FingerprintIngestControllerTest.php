@@ -192,15 +192,49 @@ class FingerprintIngestControllerTest extends TestCase
             ->assertOk();
     }
 
-    public function test_ingest_marks_the_device_online(): void
+    public function test_ingest_marks_the_device_online_when_connector_reports_live(): void
     {
         $device = $this->device(['status' => 'offline']);
+        $payload = $this->payload();
+        $payload['live'] = true;
 
-        $this->postJson('/api/v1/fingerprint/ingest', $this->payload(), ['X-Device-Token' => $device->secret_token])->assertOk();
+        $this->postJson('/api/v1/fingerprint/ingest', $payload, ['X-Device-Token' => $device->secret_token])->assertOk();
 
         $device->refresh();
         $this->assertSame('active', $device->status);
         $this->assertNotNull($device->last_seen_at);
+    }
+
+    public function test_ingest_without_live_flag_does_not_mark_device_online(): void
+    {
+        // Connector C# lama tidak mengirim `live`; payload-nya bisa berasal dari
+        // offline buffer yang diputar ulang walau mesin sedang mati.
+        $device = $this->device(['status' => 'offline', 'last_seen_at' => null]);
+
+        $this->postJson('/api/v1/fingerprint/ingest', $this->payload(), ['X-Device-Token' => $device->secret_token])
+            ->assertOk()
+            ->assertJsonPath('summary.new_inserted', 1);
+
+        $device->refresh();
+        $this->assertSame('offline', $device->status);
+        $this->assertNull($device->last_seen_at);
+    }
+
+    public function test_ingest_counts_duplicate_entries_as_accepted_so_legacy_buffer_is_cleared(): void
+    {
+        $device = $this->device();
+        $headers = ['X-Device-Token' => $device->secret_token];
+        $payload = $this->payload();
+        $payload['logs'] = [$payload['logs'][0], $payload['logs'][0]];
+
+        $this->postJson('/api/v1/fingerprint/ingest', $payload, $headers)
+            ->assertOk()
+            ->assertJsonPath('summary.received', 2)
+            ->assertJsonPath('summary.accepted', 2)
+            ->assertJsonPath('summary.missing', [])
+            ->assertJsonPath('summary.new_inserted', 1);
+
+        $this->assertSame(1, AttendanceLog::where('device_id', $device->id)->count());
     }
 
     public function test_checkout_only_scan_does_not_queue_whatsapp_notification(): void
