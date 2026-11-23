@@ -68,6 +68,18 @@ class SoapFingerprintService
     }
 
     /**
+     * Apakah layanan SOAP mesin (port 80) benar-benar dapat dijangkau.
+     *
+     * Dipakai sebagai preflight sebelum operasi yang hanya tersedia lewat SOAP,
+     * supaya kegagalan dilaporkan sekali dengan pesan jelas alih-alih diulang
+     * untuk setiap siswa.
+     */
+    public function isSoapReachable(FingerprintDevice $device, float $probeTimeout = 1.0): bool
+    {
+        return $this->resolveWebPort($device, $probeTimeout) === 80;
+    }
+
+    /**
      * Mengirimkan request XML ke endpoint SOAP /iWsService mesin via soket HTTP.
      */
     public function sendSoapRequest(string $ip, int $port, string $soapXml, float $timeout = 3.0): ?string

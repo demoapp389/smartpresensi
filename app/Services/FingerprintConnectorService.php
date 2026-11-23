@@ -676,6 +676,147 @@ class FingerprintConnectorService
     }
 
     /**
+     * Tarik isi template sidik jari satu PIN langsung dari mesin via connector.
+     *
+     * Dipakai fitur Upload Sidik Jari agar tetap berfungsi pada mesin yang hanya
+     * membuka port connector (4370) dan tidak menyediakan layanan SOAP di port 80.
+     * Mengembalikan daftar jari terisi; `template` berupa base64 persis seperti
+     * payload SOAP sehingga penyimpanan database seragam untuk kedua jalur.
+     *
+     * @return array{success: bool, templates?: array<int, array{finger_id: int, size: int, template: string}>, message: string, code?: int}
+     */
+    public function exportUserTemplate(FingerprintDevice $device, string $pin, ?int $fingerId = null): array
+    {
+        if (! $this->supportsTemplateVerification()) {
+            return [
+                'success' => false,
+                'message' => 'Connector yang berjalan belum mendukung ekspor template sidik jari. '
+                    .'Perbarui connector lalu jalankan ulang layanannya.',
+                'code' => -998,
+            ];
+        }
+
+        $socketStatus = $this->checkSocketReachable($device->ip, (int) $device->port);
+
+        if ($socketStatus !== true) {
+            return [
+                'success' => false,
+                'message' => $socketStatus,
+                'code' => -201,
+            ];
+        }
+
+        $query = [
+            'ip' => $device->ip,
+            'port' => $device->port,
+            'comm_key' => $device->comm_key,
+            'pin' => $pin,
+            'include_data' => '1',
+        ];
+
+        if ($fingerId !== null) {
+            $query['finger'] = $fingerId;
+        }
+
+        $response = $this->callHttpApi('/api/user-template', $query, 20);
+        $templates = $this->templatesFromResponse($response);
+
+        // Daemon versi lama masih membalas status verifikasi tanpa isi template;
+        // coba CLI sekali sebelum menyimpulkan connector belum diperbarui.
+        if ($templates === []) {
+            $arguments = [
+                '--export-template',
+                "--ip={$device->ip}",
+                "--port={$device->port}",
+                "--comm-key={$device->comm_key}",
+                "--pin={$pin}",
+            ];
+
+            if ($fingerId !== null) {
+                $arguments[] = "--finger={$fingerId}";
+            }
+
+            $cliResponse = $this->callCli($arguments);
+            $cliTemplates = $this->templatesFromResponse($cliResponse);
+
+            if ($cliTemplates !== []) {
+                $response = $cliResponse;
+                $templates = $cliTemplates;
+            }
+        }
+
+        if (! is_array($response) || ! ($response['success'] ?? false)) {
+            return [
+                'success' => false,
+                'message' => $response['message'] ?? 'Gagal mengambil template sidik jari dari mesin.',
+                'code' => $response['code'] ?? -1,
+            ];
+        }
+
+        if ($templates === []) {
+            if (! ($response['has_template'] ?? false)) {
+                return [
+                    'success' => false,
+                    'message' => $response['message']
+                        ?? "PIN {$pin} belum memiliki template sidik jari pada mesin {$device->name}.",
+                    'code' => 0,
+                ];
+            }
+
+            return [
+                'success' => false,
+                'message' => 'Connector mengirim status template tanpa isi. Perbarui connector '
+                    .'lalu jalankan ulang layanannya agar Upload Sidik Jari dapat mencadangkan data.',
+                'code' => -997,
+            ];
+        }
+
+        return [
+            'success' => true,
+            'templates' => $templates,
+            'message' => (string) ($response['message'] ?? ''),
+            'code' => 0,
+        ];
+    }
+
+    /**
+     * Normalisasi payload connector menjadi daftar template siap simpan.
+     *
+     * @param  array<string, mixed>|null  $response
+     * @return array<int, array{finger_id: int, size: int, template: string}>
+     */
+    protected function templatesFromResponse(?array $response): array
+    {
+        if (! is_array($response)) {
+            return [];
+        }
+
+        $templates = [];
+
+        foreach ((array) ($response['templates'] ?? []) as $item) {
+            if (! is_array($item) || empty($item['template_base64'])) {
+                continue;
+            }
+
+            $templates[] = [
+                'finger_id' => (int) ($item['finger'] ?? 0),
+                'size' => (int) ($item['size'] ?? 0),
+                'template' => (string) $item['template_base64'],
+            ];
+        }
+
+        if ($templates === [] && ! empty($response['template_base64'])) {
+            $templates[] = [
+                'finger_id' => 0,
+                'size' => (int) ($response['size'] ?? 0),
+                'template' => (string) $response['template_base64'],
+            ];
+        }
+
+        return $templates;
+    }
+
+    /**
      * Ambil data log absensi dari mesin Solution X601 dan proses ke database (read-only).
      */
     public function syncAttendances(FingerprintDevice $device, ?int $operatorId = null, ?TaskProgressReporter $reporter = null): array

@@ -330,6 +330,7 @@ class SoapFingerprintServiceTest extends TestCase
             'status' => 'active',
             'last_seen_at' => now(),
             'secret_token' => 'token_backup_a',
+            'ingest_driver' => 'soap',
             'active' => true,
         ]);
 
@@ -337,6 +338,7 @@ class SoapFingerprintServiceTest extends TestCase
         DeviceUser::create(['device_id' => $device->id, 'student_id' => $student->id, 'machine_user_id' => '103']);
 
         $mockService = $this->createMock(SoapFingerprintService::class);
+        $mockService->method('isSoapReachable')->willReturn(true);
         $mockService->expects($this->once())
             ->method('getUserTemplate')
             ->willReturn([

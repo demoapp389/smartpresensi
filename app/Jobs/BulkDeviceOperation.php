@@ -6,6 +6,7 @@ use App\Models\DeviceUser;
 use App\Models\FingerprintDevice;
 use App\Models\StudentBiometricTemplate;
 use App\Models\TaskProgress;
+use App\Services\BiometricTemplateService;
 use App\Services\SoapFingerprintService;
 use App\Support\TaskProgressReporter;
 use Illuminate\Bus\Queueable;
@@ -39,6 +40,11 @@ class BulkDeviceOperation implements ShouldQueue
 
     public int $tries = 1;
 
+    /**
+     * Pesan kegagalan terakhir dari penarikan template (dipakai ringkasan).
+     */
+    protected ?string $lastFailure = null;
+
     public function __construct(
         public string $operation,
         public int $sourceDeviceId,
@@ -50,8 +56,10 @@ class BulkDeviceOperation implements ShouldQueue
         $this->onQueue('long-running');
     }
 
-    public function handle(SoapFingerprintService $soapService): void
+    public function handle(SoapFingerprintService $soapService, ?BiometricTemplateService $templates = null): void
     {
+        $templates ??= app(BiometricTemplateService::class);
+
         $reporter = TaskProgressReporter::forTask(
             TaskProgress::where('uuid', $this->progressUuid)->firstOrFail()
         );
@@ -88,6 +96,14 @@ class BulkDeviceOperation implements ShouldQueue
             }
         }
 
+        if ($this->operation === self::OP_BACKUP_FINGERPRINTS) {
+            if ($reason = $templates->backupBlockedReason($source)) {
+                $reporter->fail($reason);
+
+                return;
+            }
+        }
+
         $mappings = DeviceUser::where('device_id', $source->id)
             ->with(['student', 'student.biometricTemplates'])
             ->get();
@@ -113,13 +129,21 @@ class BulkDeviceOperation implements ShouldQueue
 
                 $outcome = match ($this->operation) {
                     self::OP_PUSH_NAMES => $this->pushName($soapService, $source, $mapping, $this->actorId),
-                    self::OP_BACKUP_FINGERPRINTS => $this->backupTemplate($soapService, $source, $mapping, $this->actorId),
-                    self::OP_CLONE => $this->cloneStudent($soapService, $source, $target, $mapping, $this->actorId),
+                    self::OP_BACKUP_FINGERPRINTS => $this->backupTemplate($templates, $source, $mapping, $this->actorId),
+                    self::OP_CLONE => $this->cloneStudent($soapService, $templates, $source, $target, $mapping, $this->actorId),
                     default => false,
                 };
 
                 $outcome ? $success++ : $failed++;
                 $reporter->advance(1, 'Memproses PIN '.$mapping->machine_user_id.'...');
+            }
+
+            if ($this->operation === self::OP_BACKUP_FINGERPRINTS && $success === 0 && $failed > 0) {
+                $reporter->fail(
+                    'Backup sidik jari gagal: '.($this->lastFailure ?: 'tidak ada template yang tersimpan.')
+                );
+
+                return;
             }
 
             $reporter->finish(
@@ -144,28 +168,33 @@ class BulkDeviceOperation implements ShouldQueue
         return (bool) ($result['success'] ?? false);
     }
 
-    protected function backupTemplate(SoapFingerprintService $soap, FingerprintDevice $device, DeviceUser $mapping, ?int $actorId): bool
+    protected function backupTemplate(BiometricTemplateService $templates, FingerprintDevice $device, DeviceUser $mapping, ?int $actorId): bool
     {
-        $result = $soap->getUserTemplate($device, $mapping->machine_user_id, 0, $actorId);
+        $result = $templates->pullTemplate($device, $mapping->machine_user_id, $actorId);
 
         if (! ($result['success'] ?? false)) {
+            $this->lastFailure = $result['message'] ?? null;
+
             return false;
         }
 
-        StudentBiometricTemplate::updateOrCreate(
-            ['student_id' => $mapping->student_id, 'finger_index' => 0],
-            [
-                'template_data' => $result['template'],
-                'template_size' => $result['size'],
-                'source_device_id' => $device->id,
-            ]
-        );
+        foreach ($result['templates'] as $template) {
+            StudentBiometricTemplate::updateOrCreate(
+                ['student_id' => $mapping->student_id, 'finger_index' => $template['finger_index']],
+                [
+                    'template_data' => $template['template'],
+                    'template_size' => $template['size'],
+                    'source_device_id' => $device->id,
+                ]
+            );
+        }
 
-        return true;
+        return $result['templates'] !== [];
     }
 
     protected function cloneStudent(
         SoapFingerprintService $soap,
+        BiometricTemplateService $templates,
         FingerprintDevice $source,
         ?FingerprintDevice $target,
         DeviceUser $mapping,
@@ -182,16 +211,23 @@ class BulkDeviceOperation implements ShouldQueue
         $template = $student->biometricTemplates->firstWhere('finger_index', 0);
 
         if (! $template) {
-            $pullResult = $soap->getUserTemplate($source, $mapping->machine_user_id, 0, $actorId);
+            $pullResult = $templates->pullTemplate($source, $mapping->machine_user_id, $actorId);
 
             if ($pullResult['success'] ?? false) {
-                $template = StudentBiometricTemplate::create([
-                    'student_id' => $student->id,
-                    'finger_index' => 0,
-                    'template_data' => $pullResult['template'],
-                    'template_size' => $pullResult['size'],
-                    'source_device_id' => $source->id,
-                ]);
+                foreach ($pullResult['templates'] as $item) {
+                    StudentBiometricTemplate::updateOrCreate(
+                        ['student_id' => $student->id, 'finger_index' => $item['finger_index']],
+                        [
+                            'template_data' => $item['template'],
+                            'template_size' => $item['size'],
+                            'source_device_id' => $source->id,
+                        ]
+                    );
+                }
+
+                $template = $student->biometricTemplates()
+                    ->where('finger_index', 0)
+                    ->first();
             }
         }
 
@@ -219,7 +255,7 @@ class BulkDeviceOperation implements ShouldQueue
             self::OP_PUSH_NAMES => "Berhasil mengirim {$success} nama siswa ke layar LCD mesin {$source->name}."
                 .($failed > 0 ? " ({$failed} siswa gagal dikirim)." : ''),
             self::OP_BACKUP_FINGERPRINTS => "Backup sidik jari selesai: {$success} template siswa tersimpan di server"
-                .($failed > 0 ? " ({$failed} siswa belum rekam jari di mesin)." : '.'),
+                .($failed > 0 ? " ({$failed} siswa gagal: mesin tidak merespons atau PIN belum punya sidik jari)." : '.'),
             self::OP_CLONE => "Sukses mengkloning {$success} siswa & sidik jari dari mesin {$source->name} ke mesin "
                 .($target?->name ?? 'mesin target').($failed > 0 ? " ({$failed} siswa gagal)." : '.'),
             default => 'Operasi selesai.',

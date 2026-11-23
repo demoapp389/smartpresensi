@@ -6,7 +6,8 @@ Menawarkan antarmuka yang identik agar Laravel (``FingerprintConnectorService``)
 perlu tahu bahasa pemrogramannya:
 
 * CLI  : ``--test``, ``--probe``, ``--diagnose``, ``--sync-students``, ``--check-template``
-  (``--pin``), ``--sync-logs`` (``--since``), ``--sync-time``, ``--scan-lan``.
+  (``--pin``), ``--export-template`` (``--pin``/``--finger``), ``--sync-logs``
+  (``--since``), ``--sync-time``, ``--scan-lan``.
 * Daemon: worker per mesin + Local HTTP API di ``127.0.0.1:4371``.
 
 Mendukung **satu atau banyak mesin** dalam satu proses. Konfigurasi mesin tunggal
@@ -19,6 +20,7 @@ koreksi jam mesin (``CMD_SET_TIME``) yang dapat dinonaktifkan lewat konfigurasi.
 
 from __future__ import annotations
 
+import base64
 import configparser
 import hmac
 import json
@@ -505,13 +507,24 @@ class Connector:
         return mapping
 
     def check_user_template(
-        self, ip: str, port: int, comm_key: str, pin: str
+        self,
+        ip: str,
+        port: int,
+        comm_key: str,
+        pin: str,
+        finger_id: int | None = None,
+        include_data: bool = False,
     ) -> dict:
         """Periksa apakah satu PIN punya template sidik jari (read-only).
 
         PIN pada database adalah `user_id` mesin, sedangkan pembacaan template
         memakai `uid` internal. Pemetaan diambil dari tabel user mesin, sama
         seperti Sinkronisasi Siswa.
+
+        `include_data=True` ikut mengembalikan isi template dalam base64 agar
+        fitur Upload Sidik Jari dapat mencadangkannya ke database server tanpa
+        memerlukan layanan SOAP di port 80. Nilai `finger_id` membatasi
+        pembacaan pada satu jari; bila kosong semua 10 slot diperiksa.
         """
         device = self._open_device(ip, port, comm_key)
         try:
@@ -523,6 +536,9 @@ class Connector:
                     "has_template": False,
                     "fingers": 0,
                     "size": 0,
+                    "uid": None,
+                    "templates": [],
+                    "template_base64": "",
                     "message": f"PIN {pin} tidak terdaftar pada mesin.",
                     "code": 0,
                 }
@@ -533,11 +549,27 @@ class Connector:
             if str(pin).isdigit() and int(pin) != uid:
                 candidates.append(int(pin))
 
-            result = {"has_template": False, "fingers": 0, "size": 0}
-            for candidate in candidates:
-                result = device.has_user_template(candidate)
-                if result.get("has_template"):
-                    break
+            if include_data:
+                templates: list[dict] = []
+                for candidate in candidates:
+                    templates = self._collect_templates(device, candidate, finger_id)
+                    if templates:
+                        uid = candidate
+                        break
+
+                result = {
+                    "has_template": bool(templates),
+                    "fingers": len(templates),
+                    "size": sum(item["size"] for item in templates),
+                }
+            else:
+                templates = []
+                result = {"has_template": False, "fingers": 0, "size": 0}
+                for candidate in candidates:
+                    result = device.has_user_template(candidate)
+                    if result.get("has_template"):
+                        uid = candidate
+                        break
         finally:
             device.disconnect()
 
@@ -554,9 +586,40 @@ class Connector:
             "has_template": has_template,
             "fingers": fingers,
             "size": int(result.get("size", 0)),
+            "uid": uid,
+            "templates": templates,
+            "template_base64": templates[0]["template_base64"] if templates else "",
             "message": message,
             "code": 0,
         }
+
+    @staticmethod
+    def _collect_templates(
+        device: ZKDevice, uid: int, finger_id: int | None = None
+    ) -> list[dict]:
+        """Baca isi template satu user, dikembalikan sebagai daftar jari terisi."""
+        slots = [finger_id] if finger_id is not None else list(range(10))
+        templates: list[dict] = []
+
+        for temp_id in slots:
+            try:
+                payload = device.get_user_template(int(uid), int(temp_id))
+            except ZKError:
+                # Slot kosong dapat dibalas error oleh firmware tertentu.
+                continue
+
+            if not payload:
+                continue
+
+            templates.append(
+                {
+                    "finger": int(temp_id),
+                    "size": len(payload),
+                    "template_base64": base64.b64encode(payload).decode("ascii"),
+                }
+            )
+
+        return templates
 
     def fetch_logs(
         self, ip: str, port: int, comm_key: str, since: datetime | None = None
@@ -1378,8 +1441,25 @@ class Connector:
                     "message": "Parameter pin wajib diisi.",
                     "code": -998,
                 }
+
+            finger_raw = (query.get("finger") or "").strip()
+            finger_id = int(finger_raw) if finger_raw.isdigit() else None
+            include_data = (query.get("include_data") or "").strip().lower() in (
+                "1",
+                "true",
+                "yes",
+            )
             return self._api_operation(
-                lambda: self.check_user_template(ip, port, comm_key, pin), ip, port
+                lambda: self.check_user_template(
+                    ip,
+                    port,
+                    comm_key,
+                    pin,
+                    finger_id=finger_id,
+                    include_data=include_data,
+                ),
+                ip,
+                port,
             )
 
         if path.startswith("/api/sync-students"):
@@ -1627,6 +1707,47 @@ def run_check_template(connector: Connector, device: DeviceConfig, pin: str) -> 
         return 1
 
 
+def run_export_template(
+    connector: Connector,
+    device: DeviceConfig,
+    pin: str,
+    finger_id: int | None = None,
+) -> int:
+    """Cetak isi template dalam base64 (dipakai Upload Sidik Jari tanpa SOAP)."""
+    if not pin:
+        _emit(
+            {
+                "success": False,
+                "has_template": None,
+                "code": -998,
+                "message": "Parameter --pin wajib diisi untuk --export-template.",
+            }
+        )
+        return 1
+
+    try:
+        result = connector.check_user_template(
+            device.ip,
+            device.port,
+            device.comm_key,
+            pin,
+            finger_id=finger_id,
+            include_data=True,
+        )
+        _emit(result)
+        return 0 if result.get("has_template") else 1
+    except ZKError as exc:
+        _emit(
+            {
+                "success": False,
+                "has_template": None,
+                "code": -201,
+                "message": str(exc),
+            }
+        )
+        return 1
+
+
 def run_sync_logs(
     connector: Connector, device: DeviceConfig, since: datetime | None = None
 ) -> int:
@@ -1697,7 +1818,17 @@ def parse_arguments(argv: list[str]):
         action="store_true",
         help="Cek apakah satu PIN punya template sidik jari (butuh --pin)",
     )
-    parser.add_argument("--pin", help="PIN mesin untuk --check-template")
+    parser.add_argument("--pin", help="PIN mesin untuk --check-template/--export-template")
+    parser.add_argument(
+        "--export-template",
+        action="store_true",
+        help="Ambil isi template sidik jari (base64) untuk satu PIN",
+    )
+    parser.add_argument(
+        "--finger",
+        type=int,
+        help="Batasi ekspor pada satu jari 0-9 (default: semua jari terisi)",
+    )
     parser.add_argument("--sync-logs", action="store_true", help="Baca seluruh log absensi")
     parser.add_argument(
         "--since",
@@ -1770,6 +1901,7 @@ def main(argv: list[str] | None = None) -> int:
             args.diagnose,
             args.sync_students,
             args.check_template,
+            args.export_template,
             args.sync_logs,
             bool(args.sync_time),
             args.scan_lan,
@@ -1793,6 +1925,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_sync_students(connector, device)
     if args.check_template:
         return run_check_template(connector, device, (args.pin or "").strip())
+    if args.export_template:
+        return run_export_template(
+            connector, device, (args.pin or "").strip(), args.finger
+        )
     if args.sync_time:
         return run_sync_time(connector, device)
     if args.sync_logs:

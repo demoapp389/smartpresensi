@@ -23,7 +23,7 @@ Aplikasi Laravel wajib menyediakan halaman **Pengaturan Mesin Fingerprint** yang
 - Connector berjalan otomatis sebagai Windows Service.
 - Laravel berkomunikasi dengan connector melalui API lokal yang diautentikasi.
 - Operasi sinkronisasi menggunakan pendekatan read-only terhadap mesin.
-- Data sidik jari dan wajah tetap tersimpan di mesin dan tidak perlu diimpor.
+- Template sidik jari tetap tersimpan di mesin sebagai sumber utama. Tombol **Upload Sidik Jari** hanya mencadangkan isi template ke `student_biometric_templates` untuk keperluan kloning/restore, mengikuti `ingest_driver` mesin: jalur connector (`include_data=1` pada `/api/user-template` atau `--export-template`) atau jalur SOAP (`GetUserTemplate`). Penulisan template ke mesin lain masih memerlukan SOAP (`SetUserTemplate`).
 - Status sidik jari hanya dianggap "belum ada" setelah mesin benar-benar diperiksa. Nilai kosong berarti "belum diverifikasi", bukan "tidak punya sidik jari". Verifikasi memakai `--check-template`/`/api/user-template` yang tersedia pada connector Python (Linux & Windows) maupun connector C# legacy (Windows), atau `GetUserTemplate` pada jalur SOAP, dan hanya membaca mesin.
 - Sistem harus tetap mendukung migrasi Laravel ke hosting pada masa mendatang.
 

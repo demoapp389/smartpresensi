@@ -7,6 +7,7 @@ Tidak menyentuh mesin fisik: semua I/O dimock.
 
 from __future__ import annotations
 
+import base64
 import json
 import socket
 import struct
@@ -110,6 +111,7 @@ class FakeDevice:
         time_error: Exception | None = None,
         users: list[dict] | None = None,
         template_uids: set[int] | None = None,
+        template_bytes: dict[tuple[int, int], bytes] | None = None,
     ):
         self.records = records
         self.closed = False
@@ -120,7 +122,9 @@ class FakeDevice:
         self.set_time_calls: list[datetime] = []
         self.users = list(users or [])
         self.template_uids = set(template_uids or set())
+        self.template_bytes = dict(template_bytes or {})
         self.template_calls: list[tuple[int, int]] = []
+        self.template_reads: list[tuple[int, int]] = []
         self.get_users_calls = 0
         self.chunk_size = 1024
         self.last_chunk_size: int | None = 1024
@@ -129,6 +133,10 @@ class FakeDevice:
     def get_users(self) -> list[dict]:
         self.get_users_calls += 1
         return list(self.users)
+
+    def get_user_template(self, uid: int, temp_id: int = 0) -> bytes:
+        self.template_reads.append((int(uid), int(temp_id)))
+        return self.template_bytes.get((int(uid), int(temp_id)), b"")
 
     def has_user_template(self, uid: int, max_fingers: int = 10) -> dict:
         self.template_calls.append((int(uid), int(max_fingers)))
@@ -539,6 +547,61 @@ class ConnectorTest(unittest.TestCase):
         self.connector.handle_api("/api/user-template", {"pin": "1001"})
 
         self.assertEqual(1, fake.get_users_calls)
+
+    def test_api_user_template_exports_base64_payload(self) -> None:
+        raw = b"TEMPLATE-BYTES\x00\x01"
+        fake = FakeDevice(
+            [],
+            users=[{"uid": 7, "pin": "1001", "name": "Budi"}],
+            template_bytes={(7, 0): raw, (7, 3): b"SECOND"},
+        )
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
+
+        result = self.connector.handle_api(
+            "/api/user-template",
+            {"pin": "1001", "include_data": "1"},
+        )
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["has_template"])
+        self.assertEqual(2, result["fingers"])
+        self.assertEqual(7, result["uid"])
+        self.assertEqual(base64.b64encode(raw).decode("ascii"), result["template_base64"])
+        self.assertEqual(
+            [0, 3], [item["finger"] for item in result["templates"]]
+        )
+        self.assertEqual(len(raw), result["templates"][0]["size"])
+        self.assertEqual(len(raw) + len(b"SECOND"), result["size"])
+
+    def test_api_user_template_export_can_target_one_finger(self) -> None:
+        fake = FakeDevice(
+            [],
+            users=[{"uid": 7, "pin": "1001", "name": "Budi"}],
+            template_bytes={(7, 0): b"ZERO", (7, 4): b"FOUR"},
+        )
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
+
+        result = self.connector.handle_api(
+            "/api/user-template",
+            {"pin": "1001", "include_data": "1", "finger": "4"},
+        )
+
+        self.assertEqual(4, result["templates"][0]["finger"])
+        self.assertEqual(b"FOUR", base64.b64decode(result["template_base64"]))
+        self.assertEqual([(7, 4)], fake.template_reads)
+
+    def test_api_user_template_export_reports_missing_payload(self) -> None:
+        fake = FakeDevice([], users=[{"uid": 9, "pin": "1003", "name": "Ani"}])
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
+
+        result = self.connector.handle_api(
+            "/api/user-template", {"pin": "1003", "include_data": "1"}
+        )
+
+        self.assertTrue(result["success"])
+        self.assertFalse(result["has_template"])
+        self.assertEqual("", result["template_base64"])
+        self.assertEqual([], result["templates"])
 
     def test_api_test_updates_connectivity_status(self) -> None:
         self.connector.test_connection = lambda ip, port, key: {

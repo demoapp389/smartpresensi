@@ -248,8 +248,8 @@
         [
             'cat' => 'perangkat',
             'title' => 'Bagaimana mengunggah (backup) sidik jari dari mesin ke server?',
-            'keywords' => 'upload sidik jari backup fingerprint template mesin ke server',
-            'body' => 'Pada bagian <strong>Pemeliharaan Mesin &rarr; Upload Sidik Jari</strong>. Aksi ini mengunggah (men-cadangkan) seluruh data sidik jari dari mesin ke server. Backup ini berguna sebelum mengganti/mereset mesin agar siswa tidak perlu merekam ulang.',
+            'keywords' => 'upload sidik jari backup fingerprint template mesin ke server connector soap port 80',
+            'body' => 'Pada bagian <strong>Pemeliharaan Mesin &rarr; Upload Sidik Jari</strong>. Aksi ini mencadangkan isi template sidik jari dari mesin ke tabel <code>student_biometric_templates</code> (semua jari yang terisi). Jalur penarikan mengikuti <strong>driver ingest</strong> mesin: mesin bertipe <em>connector</em> memakai koneksi port 4370, mesin bertipe <em>SOAP</em> memakai Web Service port 80, dan bila jalur utama gagal sistem mencoba jalur lainnya. Jadi tombol ini tetap berfungsi pada mesin yang hanya membuka port 4370. Backup berguna sebelum mengganti/mereset mesin agar siswa tidak perlu merekam ulang. Bila muncul pesan bahwa connector belum mendukung ekspor template, perbarui <code>connector/zkconnector.py</code> lalu jalankan ulang layanan connector (<code>sudo systemctl restart solutionx601-connector</code>).',
         ],
         [
             'cat' => 'perangkat',
