@@ -14,6 +14,7 @@ Aplikasi Laravel wajib menyediakan halaman **Pengaturan Mesin Fingerprint** yang
 8. Menampilkan jumlah siswa dan log absensi yang berhasil disinkronkan.
 9. Menampilkan riwayat sinkronisasi dan informasi kesalahan.
 10. Menjalankan seluruh fungsi melalui Dashboard UI tanpa memerlukan penggunaan CMD secara rutin.
+11. Memverifikasi apakah PIN yang terdaftar benar-benar punya template sidik jari melalui tombol **Verifikasi Sidik Jari**, lalu menampilkan statusnya pada daftar siswa dan halaman pemetaan.
 
 ### Ketentuan Teknis
 
@@ -23,6 +24,7 @@ Aplikasi Laravel wajib menyediakan halaman **Pengaturan Mesin Fingerprint** yang
 - Laravel berkomunikasi dengan connector melalui API lokal yang diautentikasi.
 - Operasi sinkronisasi menggunakan pendekatan read-only terhadap mesin.
 - Data sidik jari dan wajah tetap tersimpan di mesin dan tidak perlu diimpor.
+- Status sidik jari hanya dianggap "belum ada" setelah mesin benar-benar diperiksa. Nilai kosong berarti "belum diverifikasi", bukan "tidak punya sidik jari". Verifikasi memakai `--check-template` pada connector C# (Windows) atau `GetUserTemplate` pada jalur SOAP, dan hanya membaca mesin.
 - Sistem harus tetap mendukung migrasi Laravel ke hosting pada masa mendatang.
 
 ### Kriteria Penerimaan

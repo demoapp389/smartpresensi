@@ -24,12 +24,17 @@ class DeviceMachineUser extends Model
         'device_id',
         'fingerprint_user_id',
         'machine_name',
+        'has_template',
+        'template_checked_at',
+        'template_check_source',
         'synced_at',
     ];
 
     protected function casts(): array
     {
         return [
+            'has_template' => 'boolean',
+            'template_checked_at' => 'datetime',
             'synced_at' => 'datetime',
         ];
     }
@@ -54,6 +59,30 @@ class DeviceMachineUser extends Model
     public function scopeUnmapped(Builder $query): Builder
     {
         return $query->whereDoesntHave('mapping');
+    }
+
+    /**
+     * Pengguna mesin yang sudah terverifikasi punya template sidik jari.
+     */
+    public function scopeHasTemplate(Builder $query): Builder
+    {
+        return $query->where('has_template', true);
+    }
+
+    /**
+     * Pengguna mesin yang sudah terverifikasi tidak punya template sidik jari.
+     */
+    public function scopeMissingTemplate(Builder $query): Builder
+    {
+        return $query->where('has_template', false);
+    }
+
+    /**
+     * Pengguna mesin yang status sidik jarinya belum pernah diperiksa.
+     */
+    public function scopeTemplateUnknown(Builder $query): Builder
+    {
+        return $query->whereNull('has_template');
     }
 
     /**

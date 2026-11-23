@@ -634,6 +634,53 @@ class SoapFingerprintService
     }
 
     /**
+     * Periksa apakah user punya template sidik jari di mesin (tanpa menyimpan).
+     *
+     * Memeriksa 10 slot jari dan berhenti pada slot pertama yang berisi template,
+     * sehingga satu PIN yang sudah terekam hanya memerlukan satu permintaan SOAP.
+     *
+     * @return array{success: bool, has_template: ?bool, message: string, code?: int}
+     */
+    public function hasUserTemplate(FingerprintDevice $device, string|int $pin): array
+    {
+        $port = $this->resolveWebPort($device);
+        $commKey = $device->comm_key ?: '0';
+
+        for ($fingerId = 0; $fingerId < 10; $fingerId++) {
+            $soapRequest = "<GetUserTemplate><ArgComKey xsi:type=\"xsd:integer\">{$commKey}</ArgComKey><Arg><PIN xsi:type=\"xsd:integer\">{$pin}</PIN><FingerID xsi:type=\"xsd:integer\">{$fingerId}</FingerID></Arg></GetUserTemplate>";
+            $response = $this->sendSoapRequest($device->ip, $port, $soapRequest, 5.0);
+
+            if (! $response) {
+                return [
+                    'success' => false,
+                    'has_template' => null,
+                    'message' => "Mesin {$device->name} tidak merespons saat memeriksa sidik jari PIN {$pin}.",
+                    'code' => -201,
+                ];
+            }
+
+            $templateBlock = $this->parseTag($response, '<GetUserTemplateResponse>', '</GetUserTemplateResponse>');
+            $template = trim($this->parseTag($templateBlock, '<Template>', '</Template>'));
+
+            if ($template !== '') {
+                return [
+                    'success' => true,
+                    'has_template' => true,
+                    'message' => "PIN {$pin} memiliki template sidik jari pada jari #{$fingerId}.",
+                    'code' => 0,
+                ];
+            }
+        }
+
+        return [
+            'success' => true,
+            'has_template' => false,
+            'message' => "PIN {$pin} terdaftar tetapi belum ada template sidik jari.",
+            'code' => 0,
+        ];
+    }
+
+    /**
      * Mengirimkan template biner sidik jari ke mesin (<SetUserTemplate>).
      */
     public function setUserTemplate(FingerprintDevice $device, string|int $pin, int $fingerId, string $template, ?int $operatorId = null): array

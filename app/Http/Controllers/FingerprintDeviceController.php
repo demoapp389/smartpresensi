@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\HasHybridFilters;
 use App\Jobs\BulkDeviceOperation;
 use App\Jobs\SyncDeviceAttendance;
 use App\Jobs\SyncDeviceUsers;
+use App\Jobs\VerifyFingerprintTemplates;
 use App\Models\DeviceMachineUser;
 use App\Models\DeviceSyncLog;
 use App\Models\DeviceUser;
@@ -18,6 +19,7 @@ use App\Services\ConnectorConfigBuilder;
 use App\Services\DeviceLockService;
 use App\Services\DeviceMappingService;
 use App\Services\FingerprintConnectorService;
+use App\Services\FingerprintTemplateVerificationService;
 use App\Services\SoapFingerprintService;
 use App\Support\TaskProgressReporter;
 use Illuminate\Http\JsonResponse;
@@ -48,6 +50,7 @@ class FingerprintDeviceController extends Controller
         protected BiometricTemplateService $biometricTemplateService,
         protected DeviceMappingService $mappingService,
         protected BulkDeviceOperationService $bulkOperationService,
+        protected FingerprintTemplateVerificationService $templateVerificationService,
     ) {}
 
     /**
@@ -98,12 +101,20 @@ class FingerprintDeviceController extends Controller
     {
         $device->loadCount(['deviceUsers', 'attendanceLogs', 'syncLogs']);
 
+        // Ringkasan status sidik jari hasil verifikasi terakhir.
+        $baseMachineUsers = DeviceMachineUser::where('device_id', $device->id);
+        $templateSummary = [
+            'has' => (clone $baseMachineUsers)->hasTemplate()->count(),
+            'missing' => (clone $baseMachineUsers)->missingTemplate()->count(),
+            'unknown' => (clone $baseMachineUsers)->templateUnknown()->count(),
+        ];
+
         // Mesin lain sebagai target kloning / distribusi sidik jari.
         $otherDevices = FingerprintDevice::where('id', '!=', $device->id)
             ->orderBy('name')
             ->get();
 
-        return view('devices.show', compact('device', 'otherDevices'));
+        return view('devices.show', compact('device', 'otherDevices', 'templateSummary'));
     }
 
     /**
@@ -127,6 +138,9 @@ class FingerprintDeviceController extends Controller
         $summary = [
             'mapped' => (clone $baseMachineUsers)->mapped()->count(),
             'unmapped' => (clone $baseMachineUsers)->unmapped()->count(),
+            'has_template' => (clone $baseMachineUsers)->hasTemplate()->count(),
+            'missing_template' => (clone $baseMachineUsers)->missingTemplate()->count(),
+            'unknown_template' => (clone $baseMachineUsers)->templateUnknown()->count(),
         ];
 
         // ── Tabel utama ──
@@ -162,13 +176,24 @@ class FingerprintDeviceController extends Controller
         // DataTables di browser, dan memaginate di server akan memotong baris
         // yang tidak pernah bisa dicari pengguna. Pencarian & pengurutan
         // ditangani DataTables di sisi klien, bukan filter server terpisah.
+        $templateStatuses = collect();
+
+        if ($mappings !== null && $mappings->isNotEmpty()) {
+            $templateStatuses = DeviceMachineUser::query()
+                ->whereIn('device_id', $mappings->pluck('device_id')->unique()->values())
+                ->whereIn('fingerprint_user_id', $mappings->pluck('machine_user_id')->unique()->values())
+                ->get(['device_id', 'fingerprint_user_id', 'has_template', 'template_checked_at'])
+                ->keyBy(fn (DeviceMachineUser $row) => $row->device_id.':'.$row->fingerprint_user_id);
+        }
+
         return view('devices.mappings', compact(
             'devices',
             'selectedDeviceId',
             'tab',
             'summary',
             'machineUsers',
-            'mappings'
+            'mappings',
+            'templateStatuses'
         ));
     }
 
@@ -595,6 +620,50 @@ class FingerprintDeviceController extends Controller
 
         return redirect()->route('devices.show', $device)
             ->with('success', ($result['message'] ?? 'Sinkronisasi absensi selesai.').$suffix);
+    }
+
+    /**
+     * Verifikasi massal status sidik jari seluruh PIN pada satu mesin.
+     *
+     * Hanya membaca mesin; tidak menarik template ke server. Hasil disimpan pada
+     * device_machine_users sehingga badge di daftar siswa bisa ditampilkan tanpa
+     * menyentuh perangkat keras lagi.
+     */
+    public function verifyTemplates(Request $request, FingerprintDevice $device): RedirectResponse|JsonResponse
+    {
+        if ($response = $this->offlineActionResponse($device, 'devices.show', [$device])) {
+            return $response;
+        }
+
+        if ($request->expectsJson()) {
+            $reporter = TaskProgressReporter::start('devices.verify-templates', 'Verifikasi Sidik Jari', 0, Auth::id());
+            VerifyFingerprintTemplates::dispatch($device->id, Auth::id(), $reporter->uuid());
+
+            return response()->json([
+                'uuid' => $reporter->uuid(),
+                'progress_token' => $reporter->signature(),
+                'type' => 'devices.verify-templates',
+                'total' => 0,
+                'message' => 'Verifikasi sidik jari sedang berjalan di latar belakang.',
+            ], 202);
+        }
+
+        $outcome = $this->lockService->run(
+            $device,
+            fn () => $this->templateVerificationService->verifyDevice($device),
+            'op',
+            1800
+        );
+
+        if ($outcome['locked']) {
+            return redirect()->route('devices.show', $device)
+                ->with('error', 'Mesin sedang diproses oleh proses lain. Coba lagi sebentar.');
+        }
+
+        $result = $outcome['result'];
+
+        return redirect()->route('devices.show', $device)
+            ->with($result['success'] ? 'success' : 'error', $result['message']);
     }
 
     /**

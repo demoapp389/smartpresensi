@@ -125,7 +125,17 @@
                         <option value="{{ $c->id }}" {{ $classId == $c->id ? 'selected' : '' }}>{{ $c->name }}</option>
                     @endforeach
                 </select>
-                @if($classId || $search)
+                @if($status !== 'trashed')
+                    <select name="fingerprint_status" onchange="this.form.submit()"
+                        title="Filter berdasarkan status sidik jari pada mesin"
+                        class="h-8.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--text)] focus:border-[var(--primary-accessible)] focus:outline-none cursor-pointer">
+                        <option value="all" {{ $fingerprintStatus === 'all' ? 'selected' : '' }}>Semua Status Sidik Jari</option>
+                        <option value="has" {{ $fingerprintStatus === 'has' ? 'selected' : '' }}>Sudah Ada Sidik Jari</option>
+                        <option value="missing" {{ $fingerprintStatus === 'missing' ? 'selected' : '' }}>Belum Ada Sidik Jari</option>
+                        <option value="unknown" {{ $fingerprintStatus === 'unknown' ? 'selected' : '' }}>Belum Diverifikasi</option>
+                    </select>
+                @endif
+                @if($classId || $search || $fingerprintStatus !== 'all')
                     <a href="{{ route('students.index', $status === 'trashed' ? ['status' => 'trashed'] : []) }}"
                         class="inline-flex h-8.5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] transition-colors">
                         Reset
@@ -279,12 +289,20 @@
                             @endif
                         </td>
 
-                        <!-- ID Mesin Fingerprint -->
+                        <!-- ID Mesin Fingerprint & status sidik jari -->
                         <td class="px-4 py-2.5 font-mono text-xs">
                             @if($deviceUser)
-                                <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-[var(--primary-soft)] text-[var(--primary-accessible)] border border-[var(--primary)]/20">
-                                     {{ $deviceUser->machine_user_id }}
-                                </span>
+                                @php
+                                    $machineUser = $fingerprintStatuses->get($deviceUser->device_id.':'.$deviceUser->machine_user_id);
+                                @endphp
+                                <div class="flex flex-col items-start gap-1">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-[var(--primary-soft)] text-[var(--primary-accessible)] border border-[var(--primary)]/20">
+                                        {{ $deviceUser->machine_user_id }}
+                                    </span>
+                                    <x-fingerprint-status
+                                        :has-template="$machineUser?->has_template"
+                                        :checked-at="$machineUser?->template_checked_at" />
+                                </div>
                             @else
                                 <span class="text-[var(--text-muted)] italic text-[11px]">Belum dipetakan</span>
                             @endif

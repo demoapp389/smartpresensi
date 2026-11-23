@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\HasHybridFilters;
 use App\Jobs\ImportStudentsFromExcel;
 use App\Models\Attendance;
 use App\Models\AttendanceLog;
+use App\Models\DeviceMachineUser;
 use App\Models\DeviceUser;
 use App\Models\FingerprintDevice;
 use App\Models\Guardian;
@@ -20,9 +21,11 @@ use App\Services\SimpleXlsxExporter;
 use App\Services\SimpleXlsxReader;
 use App\Services\SoapFingerprintService;
 use App\Support\TaskProgressReporter;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -114,6 +117,12 @@ class StudentController extends Controller
         // Apply other filters from trait (device_id if needed)
         $query = $this->applyFilters($query, $request);
 
+        $fingerprintStatus = (string) $request->input('fingerprint_status', 'all');
+
+        if (in_array($fingerprintStatus, ['has', 'missing', 'unknown'], true)) {
+            $this->applyFingerprintStatusFilter($query, $fingerprintStatus);
+        }
+
         $students = $query->paginate($this->resolvePerPage(10))->withQueryString();
         $classes = SchoolClass::orderBy('name')->get();
         $devices = FingerprintDevice::where('active', true)->get();
@@ -127,6 +136,9 @@ class StudentController extends Controller
             })
             ->count();
 
+        // Status sidik jari hanya untuk PIN pada halaman ini (hindari query N+1).
+        $fingerprintStatuses = $this->fingerprintStatusesFor($students->getCollection());
+
         return view('students.index', compact(
             'students',
             'classes',
@@ -136,8 +148,78 @@ class StudentController extends Controller
             'status',
             'trashedCount',
             'activeCount',
-            'pendingWaCount'
+            'pendingWaCount',
+            'fingerprintStatus',
+            'fingerprintStatuses'
         ));
+    }
+
+    /**
+     * Peta status sidik jari untuk PIN mesin pada halaman siswa yang tampil.
+     *
+     * Kuncinya "{device_id}:{machine_user_id}". Relasi device_machine_users
+     * memakai kunci gabungan, sehingga tidak bisa di-eager-load Eloquent dan
+     * harus ditempelkan manual per baris.
+     *
+     * @param  Collection<int, Student>  $students
+     * @return Collection<string, DeviceMachineUser>
+     */
+    private function fingerprintStatusesFor(Collection $students): Collection
+    {
+        $deviceUsers = $students->flatMap->deviceUsers;
+
+        if ($deviceUsers->isEmpty()) {
+            return collect();
+        }
+
+        return DeviceMachineUser::query()
+            ->whereIn('device_id', $deviceUsers->pluck('device_id')->unique()->values())
+            ->whereIn('fingerprint_user_id', $deviceUsers->pluck('machine_user_id')->unique()->values())
+            ->get(['device_id', 'fingerprint_user_id', 'has_template', 'template_checked_at'])
+            ->keyBy(fn (DeviceMachineUser $machineUser) => $machineUser->device_id.':'.$machineUser->fingerprint_user_id);
+    }
+
+    /**
+     * Filter daftar siswa berdasarkan status sidik jari di mesin.
+     *
+     * Bila satu siswa punya beberapa PIN, status "sudah ada" menang atas
+     * "belum ada" agar siswa yang sudah terdaftar di salah satu mesin tetap
+     * dianggap punya sidik jari.
+     */
+    private function applyFingerprintStatusFilter(Builder $query, string $status): void
+    {
+        $joinMachineUser = function ($join): void {
+            $join->on('device_machine_users.device_id', '=', 'device_users.device_id')
+                ->on('device_machine_users.fingerprint_user_id', '=', 'device_users.machine_user_id');
+        };
+
+        $hasTemplateIds = DB::table('device_users')
+            ->join('device_machine_users', $joinMachineUser)
+            ->where('device_machine_users.has_template', true)
+            ->distinct()
+            ->pluck('device_users.student_id');
+
+        $missingTemplateIds = DB::table('device_users')
+            ->join('device_machine_users', $joinMachineUser)
+            ->where('device_machine_users.has_template', false)
+            ->whereNotIn('device_users.student_id', $hasTemplateIds)
+            ->distinct()
+            ->pluck('device_users.student_id');
+
+        if ($status === 'has') {
+            $query->whereIn('students.id', $hasTemplateIds);
+
+            return;
+        }
+
+        if ($status === 'missing') {
+            $query->whereIn('students.id', $missingTemplateIds);
+
+            return;
+        }
+
+        $query->whereHas('deviceUsers')
+            ->whereNotIn('students.id', $hasTemplateIds->merge($missingTemplateIds));
     }
 
     public function store(Request $request): RedirectResponse

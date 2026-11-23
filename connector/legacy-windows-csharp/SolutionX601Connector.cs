@@ -6,8 +6,9 @@
 //     Local HTTP API pada `local_api_port` (default 4371) untuk dipakai Laravel.
 //   * Worker (`--worker --device=<key>`) hanya melakukan polling + ingest log ke Laravel
 //     memakai token mesin masing-masing. State (checkpoint + offline buffer) per mesin.
-//   * One-shot (`--test | --sync-students | --sync-logs | --sync-time | --probe`) untuk
-//     pemanggilan langsung via CLI dari Laravel (fallback bila daemon tidak aktif).
+//   * One-shot (`--test | --sync-students | --sync-logs | --sync-time | --probe |
+//     --check-template`) untuk pemanggilan langsung via CLI dari Laravel (fallback
+//     bila daemon tidak aktif).
 //
 // Setiap worker adalah proses terpisah sehingga COM SDK (zkemkeeper.dll, 32-bit in-proc)
 // di-load sendiri-sendiri per mesin: satu mesin hang tidak menghentikan mesin lain.
@@ -321,6 +322,33 @@ namespace SolutionX601Connector
                     password = pw ?? "";
                     privilege = pr;
                     enabled = ena;
+                }
+                return ok;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Membaca satu template sidik jari user pada slot jari tertentu (0-9).
+        ///
+        /// Dipakai untuk memverifikasi apakah PIN benar-benar punya template di
+        /// mesin. Ukuran template > 0 berarti jari tersebut sudah terdaftar.
+        /// </summary>
+        public static bool SSR_GetUserTmp(int machineNumber, string enrollNumber, int fingerId, out string templateData, out int templateLength)
+        {
+            templateData = "";
+            templateLength = 0;
+            if (!Init()) return false;
+            try
+            {
+                string tmp = "";
+                int len = 0;
+                dynamic com = _com;
+                bool ok = (bool)com.SSR_GetUserTmp(machineNumber, enrollNumber, fingerId, ref tmp, ref len);
+                if (ok)
+                {
+                    templateData = tmp ?? "";
+                    templateLength = len;
                 }
                 return ok;
             }
@@ -897,6 +925,71 @@ namespace SolutionX601Connector
                 {
                     try { ZkemDevice.Disconnect(); } catch { }
                     return "{\"success\":false,\"code\":-997,\"message\":\"" + Json.Escape(ex.Message) + "\",\"users\":[]}";
+                }
+            }
+        }
+
+        /// <summary>
+        /// Cek apakah satu PIN benar-benar memiliki template sidik jari di mesin.
+        ///
+        /// Memeriksa 10 slot jari (0-9). PIN yang terdaftar tanpa template tetap
+        /// dianggap "belum ada sidik jari" agar operator tahu harus melakukan
+        /// perekaman ulang di mesin.
+        /// </summary>
+        public static string CheckUserTemplate(string ip, int port, string commKey, string pin)
+        {
+            if (string.IsNullOrEmpty(pin))
+            {
+                return "{\"success\":false,\"code\":-998,\"message\":\"Parameter pin wajib diisi.\",\"has_template\":null}";
+            }
+
+            using (var lk = new DeviceLock(ip, port))
+            {
+                if (!lk.Acquire(2500))
+                {
+                    return "{\"success\":false,\"code\":-202,\"message\":\"Mesin sedang sibuk diproses proses lain.\",\"has_template\":null}";
+                }
+
+                int err = 0;
+                if (!ConnectDeviceDirect(ip, port, commKey, out err))
+                {
+                    return "{\"success\":false,\"code\":" + err + ",\"message\":\"" + Json.Escape("Gagal terhubung ke mesin untuk cek sidik jari. Kode: " + err) + "\",\"has_template\":null}";
+                }
+
+                try
+                {
+                    int fingers = 0;
+                    int totalSize = 0;
+
+                    for (int finger = 0; finger < 10; finger++)
+                    {
+                        string tmp;
+                        int len;
+                        if (!ZkemDevice.SSR_GetUserTmp(1, pin, finger, out tmp, out len)) continue;
+                        if (len > 0 || !string.IsNullOrEmpty(tmp))
+                        {
+                            fingers++;
+                            totalSize += len;
+                        }
+                    }
+
+                    try { ZkemDevice.Disconnect(); } catch { }
+
+                    bool found = fingers > 0;
+                    var sb = new StringBuilder();
+                    sb.Append("{\"success\":true,\"code\":0,\"pin\":\"").Append(Json.Escape(pin))
+                      .Append("\",\"has_template\":").Append(found ? "true" : "false")
+                      .Append(",\"fingers\":").Append(fingers)
+                      .Append(",\"size\":").Append(totalSize)
+                      .Append(",\"message\":\"")
+                      .Append(found ? "Template sidik jari ditemukan." : "PIN terdaftar tetapi belum ada template sidik jari.")
+                      .Append("\"}");
+                    return sb.ToString();
+                }
+                catch (Exception ex)
+                {
+                    try { ZkemDevice.Disconnect(); } catch { }
+                    return "{\"success\":false,\"code\":-997,\"message\":\"" + Json.Escape(ex.Message) + "\",\"has_template\":null}";
                 }
             }
         }
@@ -1774,7 +1867,8 @@ namespace SolutionX601Connector
                     responseJson = BuildStatusJson();
                 }
                 else if (path.StartsWith("/api/test") || path.StartsWith("/api/sync-students") ||
-                         path.StartsWith("/api/sync-logs") || path.StartsWith("/api/sync-time") || path.StartsWith("/api/probe"))
+                         path.StartsWith("/api/sync-logs") || path.StartsWith("/api/sync-time") ||
+                         path.StartsWith("/api/probe") || path.StartsWith("/api/user-template"))
                 {
                     string ip; int port; string commKey;
                     ResolveTarget(qs, out ip, out port, out commKey);
@@ -1783,6 +1877,7 @@ namespace SolutionX601Connector
                     else if (path.StartsWith("/api/probe")) responseJson = DeviceOps.Probe(ip, port, commKey);
                     else if (path.StartsWith("/api/sync-students")) responseJson = DeviceOps.SyncStudents(ip, port, commKey);
                     else if (path.StartsWith("/api/sync-time")) responseJson = DeviceOps.SyncTime(ip, port, commKey);
+                    else if (path.StartsWith("/api/user-template")) responseJson = DeviceOps.CheckUserTemplate(ip, port, commKey, qs["pin"]);
                     else responseJson = DeviceOps.SyncLogs(ip, port, commKey, qs["since"]);
                 }
                 else
@@ -1924,12 +2019,13 @@ namespace SolutionX601Connector
             string portArg = GetArg(args, "--port=");
             string keyArg = GetArg(args, "--comm-key=");
             string sinceArg = GetArg(args, "--since=");
+            string pinArg = GetArg(args, "--pin=");
             string deviceArg = GetArg(args, "--device=") ?? GetNamedArg(args, "--device");
 
             int port = 4370;
             if (!string.IsNullOrEmpty(portArg)) int.TryParse(portArg, out port);
 
-            if (HasArg(args, "--test") || HasArg(args, "--probe") || HasArg(args, "--diag") || HasArg(args, "--diag2") || HasArg(args, "--sync-students") || HasArg(args, "--sync-logs") || HasArg(args, "--sync-time"))
+            if (HasArg(args, "--test") || HasArg(args, "--probe") || HasArg(args, "--diag") || HasArg(args, "--diag2") || HasArg(args, "--sync-students") || HasArg(args, "--sync-logs") || HasArg(args, "--sync-time") || HasArg(args, "--check-template"))
             {
                 DeviceConfig dev = ResolveCliDevice(cfg, deviceArg, ipArg, port, keyArg);
                 string json;
@@ -1939,6 +2035,7 @@ namespace SolutionX601Connector
                 else if (HasArg(args, "--diag")) json = ZkemDevice.Diagnose(dev.Ip, dev.Port, dev.CommKey);
                 else if (HasArg(args, "--sync-students")) json = DeviceOps.SyncStudents(dev.Ip, dev.Port, dev.CommKey);
                 else if (HasArg(args, "--sync-time")) json = DeviceOps.SyncTime(dev.Ip, dev.Port, dev.CommKey);
+                else if (HasArg(args, "--check-template")) json = DeviceOps.CheckUserTemplate(dev.Ip, dev.Port, dev.CommKey, pinArg);
                 else json = DeviceOps.SyncLogs(dev.Ip, dev.Port, dev.CommKey, sinceArg);
 
                 Console.WriteLine(json);

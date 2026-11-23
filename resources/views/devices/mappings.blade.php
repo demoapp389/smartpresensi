@@ -90,6 +90,7 @@
                             <th class="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Siswa</th>
                             <th class="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">NIS</th>
                             <th class="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Kelas</th>
+                            <th class="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Sidik Jari</th>
                             <th class="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Tanggal Pemetaan</th>
                             <th data-orderable="false" style="width:96px" class="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] text-right">Aksi</th>
                         </tr>
@@ -103,6 +104,12 @@
                             </td>
                             <td class="px-4 py-2.5">{{ $mapping->student->nis ?? 'N/A' }}</td>
                             <td class="px-4 py-2.5">{{ $mapping->student->schoolClass->name ?? 'N/A' }}</td>
+                            @php $templateStatus = $templateStatuses->get($mapping->device_id.':'.$mapping->machine_user_id); @endphp
+                            <td class="px-4 py-2.5">
+                                <x-fingerprint-status
+                                    :has-template="$templateStatus?->has_template"
+                                    :checked-at="$templateStatus?->template_checked_at" />
+                            </td>
                             <td class="px-4 py-2.5 text-[var(--text-muted)] whitespace-nowrap">{{ $mapping->created_at->format('d/m/Y') }}</td>
                             <td class="px-4 py-2.5">
                                 <div class="flex items-center justify-end gap-1.5">
@@ -136,6 +143,7 @@
                         <tr>
                             <th class="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">ID Mesin</th>
                             <th class="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Nama Mesin</th>
+                            <th class="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Sidik Jari</th>
                             <th class="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Status Pemetaan</th>
                             <th data-orderable="false" style="width:96px" class="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] text-right">Aksi</th>
                         </tr>
@@ -145,6 +153,11 @@
                         <tr class="hover:bg-[var(--surface-secondary)] transition-colors">
                             <td class="px-4 py-2.5 font-mono text-xs text-[var(--primary)]">{{ $machineUser->fingerprint_user_id }}</td>
                             <td class="px-4 py-2.5">{{ $machineUser->machine_name }}</td>
+                            <td class="px-4 py-2.5">
+                                <x-fingerprint-status
+                                    :has-template="$machineUser->has_template"
+                                    :checked-at="$machineUser->template_checked_at" />
+                            </td>
                             <td class="px-4 py-2.5">
                                 @if($machineUser->mapping)
                                     <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-sm)] text-[11px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">

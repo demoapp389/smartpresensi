@@ -565,6 +565,84 @@ class FingerprintConnectorService
     }
 
     /**
+     * Apakah connector yang tersedia mendukung cek template sidik jari per PIN.
+     *
+     * Hanya binary C# legacy (Windows) yang memiliki endpoint `/api/user-template`
+     * dan flag CLI `--check-template`. Connector Python belum mendukung operasi
+     * ini, sehingga verifikasi dilewati daripada menunggu timeout yang sia-sia.
+     */
+    public function supportsTemplateVerification(): bool
+    {
+        return $this->platform === 'Windows' && $this->legacyExePath !== null;
+    }
+
+    /**
+     * Periksa apakah satu PIN benar-benar punya template sidik jari di mesin.
+     *
+     * Operasi ini read-only: tidak menarik template ke server dan tidak mengubah
+     * data mesin. Endpoint daemon diutamakan, CLI dipakai sebagai fallback.
+     *
+     * @return array{success: bool, has_template: ?bool, fingers?: int, size?: int, message: string, code?: int}
+     */
+    public function checkUserTemplate(FingerprintDevice $device, string $pin): array
+    {
+        if (! $this->supportsTemplateVerification()) {
+            return [
+                'success' => false,
+                'has_template' => null,
+                'message' => 'Connector yang berjalan belum mendukung verifikasi template sidik jari.',
+                'code' => -998,
+            ];
+        }
+
+        $socketStatus = $this->checkSocketReachable($device->ip, (int) $device->port);
+
+        if ($socketStatus !== true) {
+            return [
+                'success' => false,
+                'has_template' => null,
+                'message' => $socketStatus,
+                'code' => -201,
+            ];
+        }
+
+        $response = $this->callHttpApi('/api/user-template', [
+            'ip' => $device->ip,
+            'port' => $device->port,
+            'comm_key' => $device->comm_key,
+            'pin' => $pin,
+        ], 15);
+
+        if (! $response) {
+            $response = $this->callCli([
+                '--check-template',
+                "--ip={$device->ip}",
+                "--port={$device->port}",
+                "--comm-key={$device->comm_key}",
+                "--pin={$pin}",
+            ]);
+        }
+
+        if (! ($response['success'] ?? false)) {
+            return [
+                'success' => false,
+                'has_template' => null,
+                'message' => $response['message'] ?? 'Gagal memeriksa template sidik jari.',
+                'code' => $response['code'] ?? -1,
+            ];
+        }
+
+        return [
+            'success' => true,
+            'has_template' => (bool) ($response['has_template'] ?? false),
+            'fingers' => (int) ($response['fingers'] ?? 0),
+            'size' => (int) ($response['size'] ?? 0),
+            'message' => (string) ($response['message'] ?? ''),
+            'code' => 0,
+        ];
+    }
+
+    /**
      * Ambil data log absensi dari mesin Solution X601 dan proses ke database (read-only).
      */
     public function syncAttendances(FingerprintDevice $device, ?int $operatorId = null, ?TaskProgressReporter $reporter = null): array

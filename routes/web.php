@@ -137,6 +137,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/devices/{device}/test-connection', [FingerprintDeviceController::class, 'testConnection'])->name('devices.test-connection');
         Route::post('/devices/{device}/sync-students', [FingerprintDeviceController::class, 'syncStudents'])->name('devices.sync-students');
         Route::post('/devices/{device}/sync-attendances', [FingerprintDeviceController::class, 'syncAttendances'])->name('devices.sync-attendances');
+        Route::post('/devices/{device}/verify-templates', [FingerprintDeviceController::class, 'verifyTemplates'])->name('devices.verify-templates');
         Route::post('/devices/{device}/sync-time', [FingerprintDeviceController::class, 'syncTime'])->name('devices.sync-time');
         Route::post('/devices/{device}/pull-soap', [FingerprintDeviceController::class, 'pullSoapAttendances'])->name('devices.pull-soap');
         Route::post('/devices/{device}/restart', [FingerprintDeviceController::class, 'restartMachine'])->name('devices.restart');

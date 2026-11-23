@@ -194,6 +194,35 @@
                             <span>Sinkronisasi Waktu</span>
                         </button>
                     </form>
+
+                    <form action="{{ route('devices.verify-templates', $device) }}" method="POST"
+                        x-on:submit.prevent="askConfirm({ title: 'Verifikasi Sidik Jari', message: 'Periksa apakah setiap PIN di {{ $device->name }} benar-benar memiliki template sidik jari? Proses ini hanya membaca mesin dan tidak mengubah data.', confirmLabel: 'Verifikasi', variant: 'info' }).then(ok => { if (ok) { submit($el, 'Verifikasi Sidik Jari', 'verify-templates'); } })">
+                        @csrf
+                        <button type="submit" x-bind:disabled="running"
+                            title="Cek status sidik jari seluruh PIN terdaftar (hanya membaca mesin)"
+                            class="inline-flex h-8.5 items-center gap-1.5 rounded-[var(--radius-sm)] bg-indigo-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
+                            <svg x-show="running && activeAction === 'verify-templates'" class="size-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                            </svg>
+                            <x-icon name="fingerprint" class="size-3.5" x-show="! (running && activeAction === 'verify-templates')" />
+                            <span x-text="running && activeAction === 'verify-templates' ? 'Memverifikasi sidik jari...' : 'Verifikasi Sidik Jari'"></span>
+                        </button>
+                    </form>
+                </div>
+
+                {{-- Ringkasan status sidik jari hasil verifikasi terakhir. --}}
+                <div class="flex flex-wrap items-center gap-1.5 border-t border-[var(--border-subtle)] px-3 py-2 text-[11px]">
+                    <span class="font-semibold text-[var(--text-muted)]">Status sidik jari:</span>
+                    <span class="inline-flex items-center gap-1 rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        {{ $templateSummary['has'] }} ada
+                    </span>
+                    <span class="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                        {{ $templateSummary['missing'] }} belum ada
+                    </span>
+                    <span class="inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--surface-secondary)] px-1.5 py-0.5 font-medium text-[var(--text-muted)]">
+                        {{ $templateSummary['unknown'] }} belum diverifikasi
+                    </span>
                 </div>
             </section>
 
