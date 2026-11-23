@@ -10,6 +10,7 @@ use App\Models\FingerprintDevice;
 use App\Models\Student;
 use App\Support\TaskProgressReporter;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\Process\Process;
@@ -567,13 +568,45 @@ class FingerprintConnectorService
     /**
      * Apakah connector yang tersedia mendukung cek template sidik jari per PIN.
      *
-     * Hanya binary C# legacy (Windows) yang memiliki endpoint `/api/user-template`
-     * dan flag CLI `--check-template`. Connector Python belum mendukung operasi
-     * ini, sehingga verifikasi dilewati daripada menunggu timeout yang sia-sia.
+     * Connector C# legacy (Windows) punya binary dengan endpoint `/api/user-template`
+     * dan flag CLI `--check-template`. Connector Python (Linux) melaporkan dukungan
+     * yang sama lewat `capabilities.user_template` pada `/api/status`, sehingga
+     * verifikasi tidak lagi dilewati di server Linux.
      */
     public function supportsTemplateVerification(): bool
     {
-        return $this->platform === 'Windows' && $this->legacyExePath !== null;
+        if ($this->platform === 'Windows' && $this->legacyExePath !== null) {
+            return true;
+        }
+
+        return (bool) ($this->connectorCapabilities()['user_template'] ?? false);
+    }
+
+    /**
+     * Kapabilitas yang dilaporkan Local HTTP API connector (`/api/status`).
+     *
+     * Di-cache singkat karena pemeriksaan template memanggil method ini untuk setiap
+     * PIN; tanpa cache, satu kali verifikasi bisa memicu ratusan request HTTP lokal.
+     *
+     * @return array<string, mixed>
+     */
+    protected function connectorCapabilities(): array
+    {
+        return Cache::remember(
+            'connector:capabilities:'.md5($this->localApiUrl),
+            now()->addSeconds(60),
+            function (): array {
+                $status = $this->callHttpApi('/api/status', [], 2);
+
+                if (! is_array($status) || ($status['status'] ?? null) !== 'ok') {
+                    return [];
+                }
+
+                $capabilities = $status['capabilities'] ?? [];
+
+                return is_array($capabilities) ? $capabilities : [];
+            }
+        );
     }
 
     /**

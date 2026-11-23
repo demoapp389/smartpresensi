@@ -40,7 +40,9 @@ class FingerprintTemplateVerificationService
 
         if ($driver === 'connector' && ! $this->connectorService->supportsTemplateVerification()) {
             return $this->failure(
-                'Connector yang berjalan belum mendukung verifikasi sidik jari. Perbarui connector C# terlebih dahulu.'
+                'Connector yang berjalan belum mendukung verifikasi sidik jari. '
+                .'Perbarui connector (Python di Linux atau C# di Windows) ke versi terbaru, '
+                .'lalu pastikan layanan connectornya sudah dijalankan ulang.'
             );
         }
 

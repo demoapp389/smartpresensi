@@ -253,6 +253,12 @@
         ],
         [
             'cat' => 'perangkat',
+            'title' => 'Bagaimana memeriksa apakah PIN siswa benar-benar punya sidik jari?',
+            'keywords' => 'verifikasi sidik jari cek template connector belum mendukung perbarui',
+            'body' => 'Buka halaman detail mesin lalu klik <strong>Verifikasi Sidik Jari</strong>. Sistem hanya <em>membaca</em> mesin dan menyimpan hasilnya pada status tiap PIN (Ada / Belum ada / Belum diverifikasi). Proses ini memakai endpoint <code>/api/user-template</code> (atau <code>--check-template</code>) pada connector. Bila muncul pesan <em>connector belum mendukung verifikasi</em>, perbarui berkas <code>connector/zkconnector.py</code> ke versi terbaru lalu jalankan ulang layanan connector (<code>sudo systemctl restart solutionx601-connector</code>).',
+        ],
+        [
+            'cat' => 'perangkat',
             'title' => 'Bagaimana menyalin seluruh data ke mesin lain (kloning)?',
             'keywords' => 'salin data clone bulk clone mesin lain copy sidik jari',
             'body' => 'Klik <strong>Salin Data ke Mesin Lain</strong> pada halaman detail mesin, lalu pilih <strong>mesin target</strong>. Sistem menyalin seluruh nama siswa, PIN, dan sidik jari dari mesin ini ke mesin tujuan, sehingga <strong>siswa tidak perlu melakukan perekaman jari ulang</strong>. Tombol ini aktif bila minimal ada dua mesin terdaftar.',

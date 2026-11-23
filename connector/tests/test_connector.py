@@ -108,6 +108,8 @@ class FakeDevice:
         device_time: datetime | None = None,
         set_time_result: bool = True,
         time_error: Exception | None = None,
+        users: list[dict] | None = None,
+        template_uids: set[int] | None = None,
     ):
         self.records = records
         self.closed = False
@@ -116,9 +118,25 @@ class FakeDevice:
         self.time_error = time_error
         self.get_time_calls = 0
         self.set_time_calls: list[datetime] = []
+        self.users = list(users or [])
+        self.template_uids = set(template_uids or set())
+        self.template_calls: list[tuple[int, int]] = []
+        self.get_users_calls = 0
         self.chunk_size = 1024
         self.last_chunk_size: int | None = 1024
         self.last_read_mode = "buffered"
+
+    def get_users(self) -> list[dict]:
+        self.get_users_calls += 1
+        return list(self.users)
+
+    def has_user_template(self, uid: int, max_fingers: int = 10) -> dict:
+        self.template_calls.append((int(uid), int(max_fingers)))
+
+        if int(uid) in self.template_uids:
+            return {"has_template": True, "fingers": 2, "size": 1024}
+
+        return {"has_template": False, "fingers": 0, "size": 0}
 
     def get_attendance(self) -> list[dict]:
         return list(self.records)
@@ -440,6 +458,87 @@ class ConnectorTest(unittest.TestCase):
         stale = self.connector.handle_api("/api/status", {})["devices"][0]
 
         self.assertFalse(stale["connected"])
+
+    def test_status_reports_user_template_capability(self) -> None:
+        result = self.connector.handle_api("/api/status", {})
+
+        self.assertTrue(result["capabilities"]["user_template"])
+
+    def test_api_user_template_reports_enrolled_pin(self) -> None:
+        fake = FakeDevice(
+            [],
+            users=[{"uid": 7, "pin": "1001", "name": "Budi"}],
+            template_uids={7},
+        )
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
+
+        result = self.connector.handle_api(
+            "/api/user-template", {"ip": "10.0.0.1", "port": "4370", "pin": "1001"}
+        )
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["has_template"])
+        self.assertEqual(2, result["fingers"])
+        self.assertEqual(1024, result["size"])
+        self.assertEqual([(7, 10)], fake.template_calls)
+        self.assertTrue(fake.closed)
+
+    def test_api_user_template_reports_missing_template(self) -> None:
+        fake = FakeDevice([], users=[{"uid": 8, "pin": "1002", "name": "Siti"}])
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
+
+        result = self.connector.handle_api(
+            "/api/user-template", {"ip": "10.0.0.1", "port": "4370", "pin": "1002"}
+        )
+
+        self.assertTrue(result["success"])
+        self.assertFalse(result["has_template"])
+        self.assertIn("belum ada template", result["message"])
+
+    def test_api_user_template_reports_unknown_pin(self) -> None:
+        fake = FakeDevice([], users=[])
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
+
+        result = self.connector.handle_api(
+            "/api/user-template", {"ip": "10.0.0.1", "port": "4370", "pin": "9999"}
+        )
+
+        self.assertTrue(result["success"])
+        self.assertFalse(result["has_template"])
+        self.assertIn("tidak terdaftar", result["message"])
+        self.assertEqual([], fake.template_calls)
+
+    def test_api_user_template_requires_pin(self) -> None:
+        result = self.connector.handle_api("/api/user-template", {})
+
+        self.assertFalse(result["success"])
+        self.assertIsNone(result["has_template"])
+
+    def test_api_user_template_falls_back_to_pin_as_uid(self) -> None:
+        fake = FakeDevice(
+            [],
+            users=[{"uid": 5, "pin": "1001", "name": "Budi"}],
+            template_uids={1001},
+        )
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
+
+        result = self.connector.handle_api("/api/user-template", {"pin": "1001"})
+
+        self.assertTrue(result["has_template"])
+        self.assertEqual([(5, 10), (1001, 10)], fake.template_calls)
+
+    def test_user_map_is_cached_between_pin_checks(self) -> None:
+        fake = FakeDevice(
+            [],
+            users=[{"uid": 7, "pin": "1001", "name": "Budi"}],
+            template_uids={7},
+        )
+        self.connector._open_device = lambda ip, port, comm_key, chunk_size=None: fake
+
+        self.connector.handle_api("/api/user-template", {"pin": "1001"})
+        self.connector.handle_api("/api/user-template", {"pin": "1001"})
+
+        self.assertEqual(1, fake.get_users_calls)
 
     def test_api_test_updates_connectivity_status(self) -> None:
         self.connector.test_connection = lambda ip, port, key: {
@@ -1017,6 +1116,61 @@ class ConnectorTest(unittest.TestCase):
         self.assertEqual(device["last_clock_sync"], "2026-10-23 12:01:00")
         self.assertEqual(device["clock_drift_seconds"], -20)
         self.assertEqual(result["clock_sync_minutes"], 0)
+
+
+class UserTemplateProtocolTest(unittest.TestCase):
+    """Pembacaan template sidik jari per jari (read-only) tanpa mesin fisik."""
+
+    def _device(self, data: bytes) -> ZKDevice:
+        device = ZKDevice("127.0.0.1")
+
+        def _respond(*_args, **_kwargs):
+            device._data = data
+            return {"status": True, "code": CMD_ACK_OK}
+
+        device._send_command = _respond
+        return device
+
+    def test_get_user_template_reads_size_prefixed_payload(self) -> None:
+        device = self._device(struct.pack("<I", 4) + b"ABCD")
+
+        self.assertEqual(b"ABCD", device.get_user_template(1, 0))
+
+    def test_get_user_template_reads_unprefixed_payload(self) -> None:
+        template = b"T" * 512
+        device = self._device(template)
+
+        self.assertEqual(template, device.get_user_template(1, 0))
+
+    def test_get_user_template_returns_empty_for_empty_slot(self) -> None:
+        self.assertEqual(b"", self._device(struct.pack("<I", 0)).get_user_template(1, 0))
+        self.assertEqual(b"", self._device(b"").get_user_template(1, 0))
+
+    def test_has_user_template_counts_enrolled_fingers(self) -> None:
+        device = self._device(b"")
+        device.get_user_template = (
+            lambda uid, temp_id: b"x" * 512 if temp_id in (0, 3) else b""
+        )
+
+        self.assertEqual(
+            {"has_template": True, "fingers": 2, "size": 1024},
+            device.has_user_template(1),
+        )
+
+    def test_has_user_template_ignores_finger_errors(self) -> None:
+        device = self._device(b"")
+
+        def _read(uid: int, temp_id: int) -> bytes:
+            if temp_id == 1:
+                raise ZKProtocolError("slot kosong")
+            return b"t" if temp_id == 0 else b""
+
+        device.get_user_template = _read
+
+        self.assertEqual(
+            {"has_template": True, "fingers": 1, "size": 1},
+            device.has_user_template(1),
+        )
 
 
 class ReadBufferFallbackTest(unittest.TestCase):

@@ -5,8 +5,8 @@ Menggantikan connector C# yang bergantung pada COM ``zkemkeeper.ZKEM`` (Windows-
 Menawarkan antarmuka yang identik agar Laravel (``FingerprintConnectorService``) tidak
 perlu tahu bahasa pemrogramannya:
 
-* CLI  : ``--test``, ``--probe``, ``--diagnose``, ``--sync-students``, ``--sync-logs``
-  (``--since``), ``--sync-time``, ``--scan-lan``.
+* CLI  : ``--test``, ``--probe``, ``--diagnose``, ``--sync-students``, ``--check-template``
+  (``--pin``), ``--sync-logs`` (``--since``), ``--sync-time``, ``--scan-lan``.
 * Daemon: worker per mesin + Local HTTP API di ``127.0.0.1:4371``.
 
 Mendukung **satu atau banyak mesin** dalam satu proses. Konfigurasi mesin tunggal
@@ -63,6 +63,10 @@ OFFLINE_BACKOFF_SECONDS = (5, 10, 20, 40, 60)
 # masih segar. Worker yang menggantung (mis. read timeout panjang) tidak boleh
 # membuat mesin tampak online tanpa batas waktu.
 STATUS_STALE_SECONDS = 90.0
+
+# Verifikasi template memanggil API sekali per PIN. Peta PIN->uid di-cache singkat
+# agar verifikasi massal tidak membaca ulang seluruh tabel user untuk setiap PIN.
+USER_MAP_TTL_SECONDS = 300.0
 
 # Mesin tunggal format lama memakai kunci ini dan menyimpan state di BASE_DIR agar
 # watermark/buffer lama tidak hilang saat upgrade.
@@ -401,6 +405,7 @@ class Connector:
         self._connected: set[str] = set()
         self._last_success: dict[str, float] = {}
         self._chunk_hints: dict[str, int] = {}
+        self._pin_map_cache: dict[tuple[str, int], tuple[float, dict[str, int]]] = {}
         self.states: "OrderedDict[str, DeviceState]" = OrderedDict(
             (key, DeviceState(device)) for key, device in config.devices.items()
         )
@@ -477,6 +482,81 @@ class Connector:
             return device.get_users()
         finally:
             device.disconnect()
+
+    def _pin_uid_map(self, device: ZKDevice, ip: str, port: int) -> dict[str, int]:
+        """Peta PIN -> uid mesin dengan cache singkat per alamat mesin.
+
+        Satu kali verifikasi memanggil endpoint ini untuk setiap PIN; tanpa cache,
+        tabel user dibaca ulang dari mesin pada setiap PIN.
+        """
+        key = (ip, int(port))
+        cached = self._pin_map_cache.get(key)
+
+        if cached is not None and (time.time() - cached[0]) <= USER_MAP_TTL_SECONDS:
+            return cached[1]
+
+        mapping = {
+            str(user.get("pin", "")): int(user.get("uid", 0))
+            for user in device.get_users()
+            if str(user.get("pin", "")) != ""
+        }
+        self._pin_map_cache[key] = (time.time(), mapping)
+
+        return mapping
+
+    def check_user_template(
+        self, ip: str, port: int, comm_key: str, pin: str
+    ) -> dict:
+        """Periksa apakah satu PIN punya template sidik jari (read-only).
+
+        PIN pada database adalah `user_id` mesin, sedangkan pembacaan template
+        memakai `uid` internal. Pemetaan diambil dari tabel user mesin, sama
+        seperti Sinkronisasi Siswa.
+        """
+        device = self._open_device(ip, port, comm_key)
+        try:
+            uid = self._pin_uid_map(device, ip, port).get(str(pin))
+
+            if uid is None:
+                return {
+                    "success": True,
+                    "has_template": False,
+                    "fingers": 0,
+                    "size": 0,
+                    "message": f"PIN {pin} tidak terdaftar pada mesin.",
+                    "code": 0,
+                }
+
+            # Firmware berbeda memakai `uid` internal atau user_id (PIN) sebagai
+            # kunci pembacaan template. Coba uid lebih dulu, lalu PIN bila kosong.
+            candidates = [uid]
+            if str(pin).isdigit() and int(pin) != uid:
+                candidates.append(int(pin))
+
+            result = {"has_template": False, "fingers": 0, "size": 0}
+            for candidate in candidates:
+                result = device.has_user_template(candidate)
+                if result.get("has_template"):
+                    break
+        finally:
+            device.disconnect()
+
+        has_template = bool(result.get("has_template"))
+        fingers = int(result.get("fingers", 0))
+        message = (
+            f"PIN {pin} memiliki template sidik jari ({fingers} jari)."
+            if has_template
+            else f"PIN {pin} terdaftar tetapi belum ada template sidik jari."
+        )
+
+        return {
+            "success": True,
+            "has_template": has_template,
+            "fingers": fingers,
+            "size": int(result.get("size", 0)),
+            "message": message,
+            "code": 0,
+        }
 
     def fetch_logs(
         self, ip: str, port: int, comm_key: str, since: datetime | None = None
@@ -1267,6 +1347,9 @@ class Connector:
                 "clock_sync_minutes": self.config.clock_sync_minutes,
                 "clock_max_drift_seconds": self.config.clock_max_drift_seconds,
                 "clock_allow_backward": self.config.clock_allow_backward,
+                # Kapabilitas connector (bukan mesin) agar dashboard dapat
+                # memutuskan fitur verifikasi sidik jari tanpa menebak versi.
+                "capabilities": {"user_template": True},
                 "devices": devices,
             }
 
@@ -1284,6 +1367,19 @@ class Connector:
         if path.startswith("/api/test"):
             return self._api_operation(
                 lambda: self.test_connection(ip, port, comm_key), ip, port
+            )
+
+        if path.startswith("/api/user-template"):
+            pin = (query.get("pin") or "").strip()
+            if not pin:
+                return {
+                    "success": False,
+                    "has_template": None,
+                    "message": "Parameter pin wajib diisi.",
+                    "code": -998,
+                }
+            return self._api_operation(
+                lambda: self.check_user_template(ip, port, comm_key, pin), ip, port
             )
 
         if path.startswith("/api/sync-students"):
@@ -1504,6 +1600,33 @@ def run_sync_students(connector: Connector, device: DeviceConfig) -> int:
         return 1
 
 
+def run_check_template(connector: Connector, device: DeviceConfig, pin: str) -> int:
+    if not pin:
+        _emit(
+            {
+                "success": False,
+                "has_template": None,
+                "code": -998,
+                "message": "Parameter --pin wajib diisi untuk --check-template.",
+            }
+        )
+        return 1
+
+    try:
+        _emit(connector.check_user_template(device.ip, device.port, device.comm_key, pin))
+        return 0
+    except ZKError as exc:
+        _emit(
+            {
+                "success": False,
+                "has_template": None,
+                "code": -201,
+                "message": str(exc),
+            }
+        )
+        return 1
+
+
 def run_sync_logs(
     connector: Connector, device: DeviceConfig, since: datetime | None = None
 ) -> int:
@@ -1569,6 +1692,12 @@ def parse_arguments(argv: list[str]):
         help="Diagnostik lengkap: TCP, kapasitas, jam, dan uji ukuran chunk",
     )
     parser.add_argument("--sync-students", action="store_true", help="Baca seluruh user mesin")
+    parser.add_argument(
+        "--check-template",
+        action="store_true",
+        help="Cek apakah satu PIN punya template sidik jari (butuh --pin)",
+    )
+    parser.add_argument("--pin", help="PIN mesin untuk --check-template")
     parser.add_argument("--sync-logs", action="store_true", help="Baca seluruh log absensi")
     parser.add_argument(
         "--since",
@@ -1640,6 +1769,7 @@ def main(argv: list[str] | None = None) -> int:
             args.probe,
             args.diagnose,
             args.sync_students,
+            args.check_template,
             args.sync_logs,
             bool(args.sync_time),
             args.scan_lan,
@@ -1661,6 +1791,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_diagnose(connector, device)
     if args.sync_students:
         return run_sync_students(connector, device)
+    if args.check_template:
+        return run_check_template(connector, device, (args.pin or "").strip())
     if args.sync_time:
         return run_sync_time(connector, device)
     if args.sync_logs:

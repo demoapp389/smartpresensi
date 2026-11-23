@@ -24,7 +24,7 @@ Aplikasi Laravel wajib menyediakan halaman **Pengaturan Mesin Fingerprint** yang
 - Laravel berkomunikasi dengan connector melalui API lokal yang diautentikasi.
 - Operasi sinkronisasi menggunakan pendekatan read-only terhadap mesin.
 - Data sidik jari dan wajah tetap tersimpan di mesin dan tidak perlu diimpor.
-- Status sidik jari hanya dianggap "belum ada" setelah mesin benar-benar diperiksa. Nilai kosong berarti "belum diverifikasi", bukan "tidak punya sidik jari". Verifikasi memakai `--check-template` pada connector C# (Windows) atau `GetUserTemplate` pada jalur SOAP, dan hanya membaca mesin.
+- Status sidik jari hanya dianggap "belum ada" setelah mesin benar-benar diperiksa. Nilai kosong berarti "belum diverifikasi", bukan "tidak punya sidik jari". Verifikasi memakai `--check-template`/`/api/user-template` yang tersedia pada connector Python (Linux & Windows) maupun connector C# legacy (Windows), atau `GetUserTemplate` pada jalur SOAP, dan hanya membaca mesin.
 - Sistem harus tetap mendukung migrasi Laravel ke hosting pada masa mendatang.
 
 ### Kriteria Penerimaan

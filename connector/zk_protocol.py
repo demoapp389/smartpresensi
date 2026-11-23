@@ -5,7 +5,8 @@ Windows) sehingga connector dapat berjalan di Windows maupun Linux. Hanya memaka
 pustaka standar Python.
 
 Cakupan sengaja dibatasi pada operasi read-only yang dipakai connector:
-koneksi + comm key, baca kapasitas mesin, baca seluruh user, dan baca seluruh log absensi.
+koneksi + comm key, baca kapasitas mesin, baca seluruh user, cek template sidik
+jari per PIN, dan baca seluruh log absensi.
 Baca data memakai mode "buffered read" (CMD_PREPARE_BUFFER/CMD_READ_BUFFER) pada TCP.
 Bila firmware menolak ukuran chunk besar, pembacaan diulang dengan chunk yang lebih kecil
 (adaptif) lalu jatuh ke mode non-buffered (CMD_ATTLOG_RRQ) sebagai upaya terakhir.
@@ -642,6 +643,58 @@ class ZKDevice:
             "group_id": str(group) if group is not None else "",
             "enabled": True,
         }
+
+    def get_user_template(self, uid: int, temp_id: int = 0) -> bytes:
+        """Baca template sidik jari satu user pada satu jari (read-only).
+
+        Firmware membalas `CMD_ACK_OK` dengan payload berawalan 4 byte ukuran, atau
+        payload polos tanpa prefiks. Keduanya ditangani; ukuran 0 berarti jari
+        tersebut belum terdaftar.
+        """
+        response = self._send_command(
+            CMD_USERTEMP_RRQ, struct.pack("<IB", int(uid), int(temp_id))
+        )
+
+        if response["code"] == CMD_ACK_UNAUTH:
+            raise ZKProtocolError("Mesin menolak pembacaan template: comm key salah.")
+
+        if not response["status"]:
+            return b""
+
+        data = self._data or b""
+        if not data:
+            return b""
+
+        if len(data) >= 4:
+            size = struct.unpack("<I", data[:4])[0]
+            if size == 0:
+                return b""
+            if size <= len(data) - 4:
+                payload = data[4 : 4 + size]
+                if len(payload) < size:
+                    payload += self._recv_raw(size - len(payload))
+                return payload[:size]
+
+        return data
+
+    def has_user_template(self, uid: int, max_fingers: int = 10) -> dict:
+        """Hitung jari yang benar-benar punya template untuk satu user mesin."""
+        fingers = 0
+        size = 0
+
+        for temp_id in range(max_fingers):
+            try:
+                template = self.get_user_template(uid, temp_id)
+            except ZKError:
+                # Satu jari gagal dibaca bukan alasan menggagalkan seluruh PIN;
+                # firmware tertentu membalas error untuk slot jari yang kosong.
+                continue
+
+            if template:
+                fingers += 1
+                size += len(template)
+
+        return {"has_template": fingers > 0, "fingers": fingers, "size": size}
 
     def get_attendance(self) -> list[dict]:
         """Ambil seluruh log absensi: pin, waktu, verify_type, source_key."""
