@@ -35,7 +35,7 @@ Dokumen audit lama sudah diringkas ke sini lalu dihapus agar tidak menjadi sumbe
 - Respons Fonnte HTTP 200 dengan `status` bukan `true` kini dianggap gagal, menyimpan
   `reason`, dan hanya memakai `id[0]` sebagai `provider_message_id`.
 - Job notifikasi WhatsApp yang gagal memperoleh lock dikembalikan ke antrean
-  (`release(10)`) dan diberi timeout 60 detik; command `whatsapp:sweep-queued`
+  (`release(10)`) dan diberi timeout 90 detik; command `whatsapp:sweep-queued`
   berjalan tiap 5 menit untuk menyelamatkan notifikasi `queued` yang tertahan.
 - Worker Linux dipisah: `smartpresensi-worker` (`default,validations`) dan
   `smartpresensi-worker-long` (`long-running`).
@@ -104,7 +104,7 @@ Dokumen audit lama sudah diringkas ke sini lalu dihapus agar tidak menjadi sumbe
 - **Auto-Alpa:** fallback NIS berlaku untuk semua status log yang memblokir, termasuk log tanpa `device_id`; keputusan `unknown` dari validasi Fonnte tidak lagi menurunkan wali yang sedang `valid`.
 - **Keamanan:** `secret_token` perangkat disembunyikan dari serialisasi, token kosong ditolak, dan rate limit ingest dikunci per IP (bukan token yang bisa diputar). `source_key` ingest selalu dihitung ulang di server agar deduplikasi tidak bisa dilewati.
 - **Absensi:** query `school_date` memakai rentang sargable, retry deadlock dilakukan di transaksi terluar, dan hanya pelanggaran unique yang dianggap balapan insert.
-- **WhatsApp:** siaran memakai `ShouldBeUnique` + lock per baris outbox; status akhir (`sent`/`delivered`/`read`/`cancelled`) tidak bisa ditimpa retry atau `failed()`.
+- **WhatsApp:** siaran memakai `ShouldBeUnique` + lock per baris outbox; status akhir (`sent`/`delivered`/`read`/`cancelled`) tidak bisa ditimpa retry atau `failed()`. Setiap pesan diberi jeda acak aman (`WA_THROTTLE_MIN_DELAY_MS`–`WA_THROTTLE_MAX_DELAY_MS`, default 10–20 detik) yang ditegakkan lintas worker; siaran dijadwalkan per pesan sehingga queue tidak tertahan, dan retry massal serta `whatsapp:sweep-queued` ikut dijadwalkan bertingkat. Penerima siaran dapat dibatasi ke siswa berstatus terlambat hari itu saja (`recipient_scope=late`).
 - **Operasional:** log `laravel*.log` dirotasi dan dihapus setelah 14 hari, `queue:prune-failed` harian, rekonsiliasi tanpa tumpang tindih, serta buffer/state connector per-mesin ikut dipangkas.
 - **Validasi:** ingest menolak ID/waktu/`source_key` yang tidak valid atau terlalu panjang; impor XLSX dibatasi ukuran dekompresi, jumlah baris, dan kolom; ekspor presensi memvalidasi tanggal, filter, dan format serta dibatasi throttle.
 - **Deployment:** template `.env` memuat `WA_META_APP_SECRET`; panduan Linux menjelaskan prosedur restore, pembuatan ulang admin, dan token perangkat setelah restore dump aplikasi.

@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Jobs\SendWhatsAppBroadcastJob;
+use App\Jobs\SendWhatsAppNotificationJob;
+use App\Models\Attendance;
 use App\Models\Guardian;
 use App\Models\NotificationLog;
 use App\Models\SchoolClass;
@@ -10,7 +12,7 @@ use App\Models\Student;
 use App\Models\TaskProgress;
 use App\Models\User;
 use App\Models\WhatsAppTemplate;
-use App\Services\WhatsApp\WhatsAppManager;
+use App\Services\WhatsApp\WhatsAppSendPacer;
 use App\Support\TaskProgressReporter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -291,8 +293,8 @@ class WhatsAppTemplateAndBroadcastTest extends TestCase
             actorId: $this->admin->id
         );
 
-        $waManager = app(WhatsAppManager::class);
-        $job->handle($waManager);
+        $pacer = app(WhatsAppSendPacer::class);
+        $job->handle($pacer);
 
         // 3 students in total, but guardians share 2 unique phone numbers
         // NotificationLog should have exactly 2 entries (deduplicated by wa_number)
@@ -337,7 +339,7 @@ class WhatsAppTemplateAndBroadcastTest extends TestCase
             'queued_at' => now(),
         ]);
 
-        $lock = Cache::lock('whatsapp-broadcast:'.$log->id, 120);
+        $lock = Cache::lock('whatsapp-notification:'.$log->id, 120);
         $this->assertTrue($lock->get());
 
         try {
@@ -347,14 +349,13 @@ class WhatsAppTemplateAndBroadcastTest extends TestCase
                 messageText: 'Pengumuman uji kunci pengiriman.',
                 progressUuid: $reporter->uuid(),
                 actorId: $this->admin->id
-            ))->handle(app(WhatsAppManager::class));
+            ))->handle(app(WhatsAppSendPacer::class));
         } finally {
             $lock->release();
         }
 
         // Nomor yang sedang diklaim instance lain tidak dikirim ulang.
         $this->assertSame('queued', $log->fresh()->status);
-
         // Penerima lain tetap diproses.
         $this->assertDatabaseHas('notification_logs', [
             'recipient_phone' => '6281200000002',
@@ -379,14 +380,136 @@ class WhatsAppTemplateAndBroadcastTest extends TestCase
             actorId: $this->admin->id
         );
 
-        $waManager = app(WhatsAppManager::class);
+        $pacer = app(WhatsAppSendPacer::class);
 
         // Eksekusi pertama mengirim pesan, eksekusi kedua mensimulasikan job yang
         // dijalankan ulang setelah restart — tidak boleh membuat baris / kirim baru.
-        $job->handle($waManager);
-        $job->handle($waManager);
+        $job->handle($pacer);
+        $job->handle($pacer);
 
         $this->assertDatabaseCount('notification_logs', 2);
         $this->assertSame(2, NotificationLog::where('event_type', 'broadcast')->where('status', 'sent')->count());
+    }
+
+    public function test_recipient_count_supports_late_only_scope(): void
+    {
+        // Hanya siswa 1 yang tercatat terlambat hari ini.
+        Attendance::create([
+            'student_id' => $this->student1->id,
+            'school_date' => now('Asia/Jakarta')->toDateString(),
+            'status' => 'hadir',
+            'check_in_at' => now('Asia/Jakarta'),
+            'check_in_status' => 'terlambat',
+        ]);
+
+        $response = $this->actingAs($this->admin)->json('POST', route('whatsapp.broadcast.recipient-count'), [
+            'target_type' => 'all',
+            'recipient_scope' => 'late',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'total_students' => 1,
+            'total_guardians' => 1,
+            'valid_guardians' => 1,
+            'recipient_scope' => 'late',
+        ]);
+    }
+
+    public function test_store_broadcast_passes_late_scope_to_job_and_audit_log(): void
+    {
+        Queue::fake();
+
+        $response = $this->actingAs($this->admin)->post(route('whatsapp.broadcast.store'), [
+            'target_type' => 'all',
+            'recipient_scope' => 'late',
+            'message' => 'Imbauan khusus bagi siswa yang terlambat hari ini.',
+        ]);
+
+        $response->assertRedirect(route('whatsapp.broadcast.create'));
+        $response->assertSessionHas('success');
+
+        Queue::assertPushed(
+            SendWhatsAppBroadcastJob::class,
+            fn (SendWhatsAppBroadcastJob $job): bool => $job->recipientScope === 'late'
+        );
+
+        $this->assertDatabaseHas('audit_logs', [
+            'actor_id' => $this->admin->id,
+            'action' => 'create_whatsapp_broadcast',
+        ]);
+    }
+
+    public function test_broadcast_job_with_late_scope_only_targets_late_students(): void
+    {
+        Attendance::create([
+            'student_id' => $this->student1->id,
+            'school_date' => now('Asia/Jakarta')->toDateString(),
+            'status' => 'hadir',
+            'check_in_at' => now('Asia/Jakarta'),
+            'check_in_status' => 'terlambat',
+        ]);
+
+        $reporter = TaskProgressReporter::start(
+            type: 'whatsapp_broadcast',
+            label: 'Siaran Terlambat',
+            total: 0,
+            userId: $this->admin->id
+        );
+
+        (new SendWhatsAppBroadcastJob(
+            targetType: 'all',
+            classIds: null,
+            messageText: 'Imbauan bagi siswa terlambat hari ini.',
+            progressUuid: $reporter->uuid(),
+            actorId: $this->admin->id,
+            recipientScope: 'late'
+        ))->handle(app(WhatsAppSendPacer::class));
+
+        $this->assertDatabaseCount('notification_logs', 1);
+        $this->assertDatabaseHas('notification_logs', [
+            'recipient_phone' => $this->guardian1->wa_number,
+            'status' => 'sent',
+        ]);
+
+        $task = TaskProgress::where('uuid', $reporter->uuid())->firstOrFail();
+        $this->assertSame(1, $task->total);
+        $this->assertSame('completed', $task->status);
+    }
+
+    public function test_broadcast_messages_are_scheduled_with_safe_gap(): void
+    {
+        config([
+            'whatsapp.throttle.min_delay_ms' => 10000,
+            'whatsapp.throttle.max_delay_ms' => 10000,
+        ]);
+
+        Queue::fake();
+
+        $reporter = TaskProgressReporter::start(
+            type: 'whatsapp_broadcast',
+            label: 'Siaran Berjeda',
+            total: 0,
+            userId: $this->admin->id
+        );
+
+        (new SendWhatsAppBroadcastJob(
+            targetType: 'all',
+            classIds: null,
+            messageText: 'Pengumuman dengan jeda aman antar pesan.',
+            progressUuid: $reporter->uuid(),
+            actorId: $this->admin->id
+        ))->handle(app(WhatsAppSendPacer::class));
+
+        $jobs = Queue::pushed(SendWhatsAppNotificationJob::class)->values();
+
+        $this->assertCount(2, $jobs);
+        $this->assertNotNull($jobs[0]->delay);
+        $this->assertNotNull($jobs[1]->delay);
+        $this->assertGreaterThanOrEqual(
+            now()->addSeconds(9)->getTimestamp(),
+            $jobs[0]->delay->getTimestamp()
+        );
+        $this->assertGreaterThan($jobs[0]->delay->getTimestamp(), $jobs[1]->delay->getTimestamp());
     }
 }

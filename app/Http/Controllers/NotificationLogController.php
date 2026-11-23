@@ -8,6 +8,7 @@ use App\Jobs\SendWhatsAppNotificationJob;
 use App\Models\NotificationLog;
 use App\Services\WhatsApp\FonnteNumberValidationService;
 use App\Services\WhatsApp\WhatsAppManager;
+use App\Services\WhatsApp\WhatsAppSendPacer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,8 @@ class NotificationLogController extends Controller
 {
     use HasHybridFilters;
     use LogsAuditTrail;
+
+    public function __construct(protected WhatsAppSendPacer $pacer) {}
 
     protected function getFilterConfig(): array
     {
@@ -148,9 +151,7 @@ class NotificationLogController extends Controller
             ]);
         });
 
-        foreach ($ids as $id) {
-            SendWhatsAppNotificationJob::dispatch($id);
-        }
+        $this->dispatchPaced($ids);
 
         return back()->with('success', "Sebanyak {$count} pesan gagal telah dimasukkan kembali ke antrean pengiriman WhatsApp.");
     }
@@ -186,9 +187,7 @@ class NotificationLogController extends Controller
             $this->logAudit('bulk_retry_whatsapp_notifications', 'NotificationLog', null, ['retried_count' => $count], ['status' => 'queued', 'retried_ids' => $ids]);
         });
 
-        foreach ($ids as $id) {
-            SendWhatsAppNotificationJob::dispatch($id);
-        }
+        $this->dispatchPaced($ids);
 
         return back()->with('success', "Sebanyak {$count} pesan telah dimasukkan kembali ke antrean pengiriman WhatsApp.");
     }
@@ -275,5 +274,29 @@ class NotificationLogController extends Controller
         }
 
         return back()->with('error', "Gagal mengirim pesan uji coba ke {$validation['normalized']}: ".($result['error'] ?? 'Unknown error'));
+    }
+
+    /**
+     * Dispatch ulang banyak pesan dengan jadwal bertingkat.
+     *
+     * Mengirim ulang ratusan pesan gagal sekaligus adalah pemicu pemblokiran
+     * nomor. Setiap pesan diberi jarak sesuai jeda aman konfigurasi.
+     *
+     * @param  list<int>  $ids
+     */
+    private function dispatchPaced(array $ids): void
+    {
+        $offsetSeconds = 0;
+
+        foreach ($ids as $id) {
+            $offsetSeconds += $this->pacer->nextGapSeconds();
+            $scheduledAt = now()->addSeconds($offsetSeconds);
+
+            // Simpan waktu kirim terjadwal agar sapuan queued tidak mendispatch
+            // ulang pesan yang memang masih menunggu giliran.
+            NotificationLog::whereKey($id)->update(['queued_at' => $scheduledAt]);
+
+            SendWhatsAppNotificationJob::dispatch((int) $id)->delay($scheduledAt);
+        }
     }
 }

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\SendWhatsAppNotificationJob;
 use App\Models\NotificationLog;
+use App\Services\WhatsApp\WhatsAppSendPacer;
 use Illuminate\Console\Command;
 
 class SweepQueuedWhatsAppNotificationsCommand extends Command
@@ -27,7 +28,7 @@ class SweepQueuedWhatsAppNotificationsCommand extends Command
     /**
      * Execute the console command.
      */
-    public function handle(): int
+    public function handle(WhatsAppSendPacer $pacer): int
     {
         $minutes = max(1, (int) $this->option('minutes'));
         $limit = max(1, (int) $this->option('limit'));
@@ -45,8 +46,17 @@ class SweepQueuedWhatsAppNotificationsCommand extends Command
             ->limit($limit)
             ->pluck('id');
 
+        $offsetSeconds = 0;
+
         foreach ($notificationIds as $notificationId) {
-            SendWhatsAppNotificationJob::dispatch((int) $notificationId);
+            $offsetSeconds += $pacer->nextGapSeconds();
+            $scheduledAt = now()->addSeconds($offsetSeconds);
+
+            // Tandai waktu kirim terjadwal agar sapuan berikutnya tidak
+            // mendispatch ulang pesan yang masih menunggu giliran.
+            NotificationLog::whereKey($notificationId)->update(['queued_at' => $scheduledAt]);
+
+            SendWhatsAppNotificationJob::dispatch((int) $notificationId)->delay($scheduledAt);
         }
 
         if ($notificationIds->isEmpty()) {

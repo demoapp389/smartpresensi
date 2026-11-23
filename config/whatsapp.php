@@ -19,6 +19,21 @@ return [
 
     'retry_limit' => (int) env('WA_RETRY_LIMIT', 3),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Jeda Aman Antar Pesan
+    |--------------------------------------------------------------------------
+    |
+    | Nomor pengirim bisa diblokir provider bila pesan dikirim terlalu cepat.
+    | Setiap pesan diberi jeda acak di antara dua batas ini (milidetik), dan
+    | jeda ditegakkan lintas worker memakai cache lock. Isi 0 untuk menonaktifkan.
+    |
+    */
+    'throttle' => [
+        'min_delay_ms' => (int) env('WA_THROTTLE_MIN_DELAY_MS', 10000),
+        'max_delay_ms' => (int) env('WA_THROTTLE_MAX_DELAY_MS', 20000),
+    ],
+
     'meta' => [
         'version' => env('WA_META_VERSION', 'v20.0'),
         'phone_number_id' => env('WA_META_PHONE_NUMBER_ID', ''),

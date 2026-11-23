@@ -3,13 +3,16 @@
 namespace App\Jobs;
 
 use App\Models\NotificationLog;
+use App\Models\TaskProgress;
 use App\Services\WhatsApp\WhatsAppManager;
+use App\Services\WhatsApp\WhatsAppSendPacer;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -22,7 +25,7 @@ class SendWhatsAppNotificationJob implements ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 60;
+    public int $timeout = 90;
 
     public array $backoff = [30, 60, 180];
 
@@ -39,8 +42,10 @@ class SendWhatsAppNotificationJob implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(): void
+    public function handle(?WhatsAppSendPacer $pacer = null): void
     {
+        $pacer ??= app(WhatsAppSendPacer::class);
+
         $lock = Cache::lock('whatsapp-notification:'.$this->notificationId, 120);
 
         if (! $lock->get()) {
@@ -56,13 +61,13 @@ class SendWhatsAppNotificationJob implements ShouldQueue
         }
 
         try {
-            $this->sendNotification();
+            $this->sendNotification($pacer);
         } finally {
             $lock->release();
         }
     }
 
-    private function sendNotification(): void
+    private function sendNotification(WhatsAppSendPacer $pacer): void
     {
         $notification = NotificationLog::find($this->notificationId);
 
@@ -80,7 +85,7 @@ class SendWhatsAppNotificationJob implements ShouldQueue
         }
 
         if ($notification->attendance?->is_manual_override) {
-            $this->updateUnlessFinal($notification, [
+            $this->finalize($notification, [
                 'status' => 'cancelled',
                 'error_message' => 'Dibatalkan: presensi telah dikoreksi manual oleh operator.',
             ]);
@@ -92,8 +97,10 @@ class SendWhatsAppNotificationJob implements ShouldQueue
         // Pengecekan guard wali (Consent & Validitas Nomor Fonnte)
         $guardian = $notification->guardian;
         if ($guardian) {
-            if (! $guardian->consent_at) {
-                $this->updateUnlessFinal($notification, [
+            // Siaran pengumuman dikirim atas konfirmasi eksplisit operator, sehingga
+            // tidak mewajibkan consent otomatis seperti notifikasi absensi.
+            if (! $guardian->consent_at && $notification->event_type !== 'broadcast') {
+                $this->finalize($notification, [
                     'status' => 'cancelled',
                     'error_message' => 'Wali belum menyetujui penerimaan notifikasi WhatsApp (Consent belum diberikan).',
                 ]);
@@ -103,7 +110,7 @@ class SendWhatsAppNotificationJob implements ShouldQueue
             }
 
             if ($guardian->wa_status === 'invalid') {
-                $this->updateUnlessFinal($notification, [
+                $this->finalize($notification, [
                     'status' => 'cancelled',
                     'error_message' => 'Nomor WhatsApp wali tidak aktif / tidak terdaftar di aplikasi WhatsApp (invalid). Pengiriman dibatalkan tanpa mengurangi kuota.',
                 ]);
@@ -113,7 +120,7 @@ class SendWhatsAppNotificationJob implements ShouldQueue
             }
 
             if ($guardian->wa_status !== 'valid') {
-                $this->updateUnlessFinal($notification, [
+                $this->finalize($notification, [
                     'status' => 'held',
                     'error_message' => 'Nomor WhatsApp wali belum berstatus valid (status saat ini: '.$guardian->wa_status.'). Pesan ditahan.',
                 ]);
@@ -126,11 +133,13 @@ class SendWhatsAppNotificationJob implements ShouldQueue
         $notification->increment('attempts');
 
         $driver = WhatsAppManager::driver();
-        $result = $driver->sendMessage($notification);
+
+        // Jeda aman lintas worker: nomor pengirim tidak diblokir karena burst.
+        $result = $pacer->send(fn (): array => $driver->sendMessage($notification));
 
         if ($result['success']) {
             // Webhook bisa lebih dulu menulis delivered/read; jangan turunkan.
-            $this->updateUnlessFinal($notification, [
+            $this->finalize($notification, [
                 'status' => 'sent',
                 'sent_at' => now(),
                 'provider_message_id' => $result['message_id'],
@@ -141,10 +150,17 @@ class SendWhatsAppNotificationJob implements ShouldQueue
         } else {
             $isLastAttempt = $this->attempts() >= $this->tries;
 
-            $this->updateUnlessFinal($notification, [
-                'status' => $isLastAttempt ? 'failed' : 'queued',
-                'error_message' => $result['error'],
-            ]);
+            if ($isLastAttempt) {
+                $this->finalize($notification, [
+                    'status' => 'failed',
+                    'error_message' => $result['error'],
+                ]);
+            } else {
+                $this->updateUnlessFinal($notification, [
+                    'status' => 'queued',
+                    'error_message' => $result['error'],
+                ]);
+            }
 
             Log::error("[SendWhatsAppNotificationJob] Gagal mengirim notifikasi {$notification->id} (Percobaan {$this->attempts()}/{$this->tries}): {$result['error']}");
 
@@ -164,11 +180,80 @@ class SendWhatsAppNotificationJob implements ShouldQueue
         if ($notification) {
             // Jangan menimpa status akhir (mis. webhook sudah menulis delivered
             // sebelum job melaporkan timeout).
-            $this->updateUnlessFinal($notification, [
+            $this->finalize($notification, [
                 'status' => 'failed',
                 'error_message' => $exception->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Tulis status terminal lalu perbarui progres siaran bila pesan bagian dari siaran.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function finalize(NotificationLog $notification, array $attributes): bool
+    {
+        return DB::transaction(function () use ($notification, $attributes): bool {
+            if (! $this->updateUnlessFinal($notification, $attributes)) {
+                return false;
+            }
+
+            $this->advanceBroadcastProgress($notification);
+
+            return true;
+        });
+    }
+
+    /**
+     * Perbarui progres siaran dan tutup task saat seluruh pesan sudah selesai.
+     *
+     * Progres dihitung ulang dari status baris outbox (bukan counter naik) agar
+     * pengiriman ulang pesan yang sama tidak membuat progres melebihi total.
+     */
+    private function advanceBroadcastProgress(NotificationLog $notification): void
+    {
+        $taskUuid = $notification->payload['task_uuid'] ?? null;
+
+        if (! is_string($taskUuid) || $taskUuid === '') {
+            return;
+        }
+
+        $task = TaskProgress::where('uuid', $taskUuid)->first();
+
+        if (! $task || $task->isFinished()) {
+            return;
+        }
+
+        $baseQuery = NotificationLog::query()
+            ->where('event_type', 'broadcast')
+            ->where('idempotency_key', 'like', 'BROADCAST_'.$taskUuid.'_%');
+
+        $settled = (clone $baseQuery)
+            ->whereIn('status', ['sent', 'delivered', 'read', 'failed', 'cancelled', 'held'])
+            ->count();
+
+        TaskProgress::whereKey($task->id)
+            ->where('status', TaskProgress::STATUS_RUNNING)
+            ->update(['processed' => $settled]);
+
+        if ($settled < $task->total) {
+            return;
+        }
+
+        $sent = (clone $baseQuery)->whereIn('status', ['sent', 'delivered', 'read'])->count();
+        $failed = (clone $baseQuery)->where('status', 'failed')->count();
+
+        $task->update([
+            'status' => TaskProgress::STATUS_COMPLETED,
+            'finished_at' => now(),
+            'results' => [
+                'total' => $task->total,
+                'sent' => $sent,
+                'failed' => $failed,
+            ],
+            'message' => "Selesai. {$sent} pesan terkirim".($failed > 0 ? ", {$failed} gagal." : '.'),
+        ]);
     }
 
     /**
