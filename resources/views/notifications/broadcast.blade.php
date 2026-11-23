@@ -66,34 +66,6 @@
                         </div>
                     </div>
 
-                    <!-- Jenis Penerima: semua siswa atau hanya yang terlambat -->
-                    <div>
-                        <label class="block font-semibold text-[var(--text)] mb-2">Jenis Penerima <span class="text-rose-500">*</span></label>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            <label class="flex items-center gap-2.5 p-3 rounded-[var(--radius-sm)] border cursor-pointer transition-colors"
-                                   :class="recipientScope === 'all' ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--text)] font-semibold' : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)]'">
-                                <input type="radio" name="recipient_scope" value="all" x-model="recipientScope" @change="fetchCounts()" class="text-[var(--primary)] focus:ring-[var(--primary)]">
-                                <div>
-                                    <div class="text-xs">Semua Siswa</div>
-                                    <div class="text-[10px] text-[var(--text-muted)] font-normal">Seluruh siswa aktif pada target terpilih</div>
-                                </div>
-                            </label>
-
-                            <label class="flex items-center gap-2.5 p-3 rounded-[var(--radius-sm)] border cursor-pointer transition-colors"
-                                   :class="recipientScope === 'late' ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/30 text-[var(--text)] font-semibold' : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)]'">
-                                <input type="radio" name="recipient_scope" value="late" x-model="recipientScope" @change="fetchCounts()" class="text-amber-600 focus:ring-amber-500">
-                                <div>
-                                    <div class="text-xs">Hanya Siswa Terlambat</div>
-                                    <div class="text-[10px] text-[var(--text-muted)] font-normal">Siswa dengan presensi masuk terlambat hari ini</div>
-                                </div>
-                            </label>
-                        </div>
-
-                        <p x-show="recipientScope === 'late'" x-cloak class="mt-1.5 text-[11px] text-amber-700 dark:text-amber-400">
-                            Penerima diambil dari presensi masuk hari ini yang berstatus <span class="font-semibold">terlambat</span>, lalu disaring lagi oleh target kelas di atas.
-                        </p>
-                    </div>
-
                     <!-- Checklist Kelas (Hanya tampil jika targetType === 'class') -->
                     <div x-show="targetType === 'class'" x-cloak x-transition class="space-y-2 p-3.5 rounded-[var(--radius-sm)] bg-[var(--surface-secondary)]/50 border border-[var(--border-subtle)]">
                         <div class="flex items-center justify-between">
@@ -165,13 +137,6 @@
                                 <p class="text-[11px] text-[var(--text-secondary)]">
                                     <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="stats.valid_guardians"></span> nomor wali valid dari total
                                     <span class="font-bold text-[var(--text)]" x-text="stats.total_students"></span> siswa
-                                    <template x-if="recipientScope === 'late'">
-                                        <span class="text-amber-700 dark:text-amber-400">(hanya siswa terlambat)</span>
-                                    </template>
-                                </p>
-                                <p class="mt-0.5 text-[10px] text-[var(--text-muted)]">
-                                    Jeda aman {{ $throttleMinSeconds }}–{{ $throttleMaxSeconds }} detik/pesan &middot;
-                                    estimasi <span class="font-semibold text-[var(--text)]" x-text="stats.estimated_minutes"></span> menit pengiriman
                                 </p>
                             </div>
                         </div>
@@ -244,8 +209,7 @@
                 </h3>
                 <ul class="space-y-1.5 text-[11px] text-[var(--text-secondary)] list-disc list-inside">
                     <li>Sistem otomatis menduplikasi nomor: 1 nomor telepon orang tua hanya akan menerima 1 pesan broadcast per sesi.</li>
-                    <li>Setiap pesan diberi jeda acak {{ $throttleMinSeconds }}–{{ $throttleMaxSeconds }} detik agar nomor sekolah tidak diblokir provider.</li>
-                    <li>Penerima bisa dibatasi ke siswa yang berstatus terlambat hari ini saja.</li>
+                    <li>Pengiriman dilakukan asinkron di latar belakang (*background queue*) dengan jeda aman agar nomor sekolah tidak diblokir.</li>
                     <li>Hanya nomor dengan status WhatsApp <strong>Valid</strong> yang diproses untuk menghemat kuota gateway.</li>
                 </ul>
             </div>
@@ -257,7 +221,6 @@
 function broadcastManager() {
     return {
         targetType: 'all',
-        recipientScope: 'all',
         selectedClasses: [],
         messageText: '',
         submitting: false,
@@ -267,7 +230,6 @@ function broadcastManager() {
             total_students: {{ $totalActiveStudents }},
             total_guardians: {{ $validGuardiansCount }},
             valid_guardians: {{ $validGuardiansCount }},
-            estimated_minutes: {{ $estimatedMinutes }},
         },
         drafts: {
             libur: "Diberitahukan kepada seluruh Bapak/Ibu Wali Murid bahwa dalam rangka memperingati Hari Libur Nasional, kegiatan pembelajaran diliburkan pada tanggal " + new Date().toLocaleDateString('id-ID') + ". Siswa masuk kembali pada hari kerja berikutnya.",
@@ -295,7 +257,6 @@ function broadcastManager() {
                     },
                     body: JSON.stringify({
                         target_type: this.targetType,
-                        recipient_scope: this.recipientScope,
                         class_ids: this.selectedClasses,
                     })
                 });
@@ -315,7 +276,7 @@ function broadcastManager() {
 
             const approved = await window.askConfirm({
                 title: 'Konfirmasi Pengiriman Siaran',
-                message: 'Apakah Anda yakin ingin mengirimkan pesan siaran pengumuman ini kepada ' + this.stats.valid_guardians + ' orang tua siswa' + (this.recipientScope === 'late' ? ' (hanya siswa terlambat hari ini)' : '') + '? Pengiriman memakan waktu ±' + this.stats.estimated_minutes + ' menit karena jeda aman antar pesan.',
+                message: 'Apakah Anda yakin ingin mengirimkan pesan siaran pengumuman ini kepada ' + this.stats.valid_guardians + ' orang tua siswa?',
                 confirmLabel: 'Ya, Kirim Sekarang',
                 variant: 'primary',
             });

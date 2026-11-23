@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Jobs\SendWhatsAppBroadcastJob;
 use App\Jobs\SendWhatsAppNotificationJob;
-use App\Models\Attendance;
 use App\Models\Guardian;
 use App\Models\NotificationLog;
 use App\Models\SchoolClass;
@@ -389,92 +388,6 @@ class WhatsAppTemplateAndBroadcastTest extends TestCase
 
         $this->assertDatabaseCount('notification_logs', 2);
         $this->assertSame(2, NotificationLog::where('event_type', 'broadcast')->where('status', 'sent')->count());
-    }
-
-    public function test_recipient_count_supports_late_only_scope(): void
-    {
-        // Hanya siswa 1 yang tercatat terlambat hari ini.
-        Attendance::create([
-            'student_id' => $this->student1->id,
-            'school_date' => now('Asia/Jakarta')->toDateString(),
-            'status' => 'hadir',
-            'check_in_at' => now('Asia/Jakarta'),
-            'check_in_status' => 'terlambat',
-        ]);
-
-        $response = $this->actingAs($this->admin)->json('POST', route('whatsapp.broadcast.recipient-count'), [
-            'target_type' => 'all',
-            'recipient_scope' => 'late',
-        ]);
-
-        $response->assertStatus(200);
-        $response->assertJson([
-            'total_students' => 1,
-            'total_guardians' => 1,
-            'valid_guardians' => 1,
-            'recipient_scope' => 'late',
-        ]);
-    }
-
-    public function test_store_broadcast_passes_late_scope_to_job_and_audit_log(): void
-    {
-        Queue::fake();
-
-        $response = $this->actingAs($this->admin)->post(route('whatsapp.broadcast.store'), [
-            'target_type' => 'all',
-            'recipient_scope' => 'late',
-            'message' => 'Imbauan khusus bagi siswa yang terlambat hari ini.',
-        ]);
-
-        $response->assertRedirect(route('whatsapp.broadcast.create'));
-        $response->assertSessionHas('success');
-
-        Queue::assertPushed(
-            SendWhatsAppBroadcastJob::class,
-            fn (SendWhatsAppBroadcastJob $job): bool => $job->recipientScope === 'late'
-        );
-
-        $this->assertDatabaseHas('audit_logs', [
-            'actor_id' => $this->admin->id,
-            'action' => 'create_whatsapp_broadcast',
-        ]);
-    }
-
-    public function test_broadcast_job_with_late_scope_only_targets_late_students(): void
-    {
-        Attendance::create([
-            'student_id' => $this->student1->id,
-            'school_date' => now('Asia/Jakarta')->toDateString(),
-            'status' => 'hadir',
-            'check_in_at' => now('Asia/Jakarta'),
-            'check_in_status' => 'terlambat',
-        ]);
-
-        $reporter = TaskProgressReporter::start(
-            type: 'whatsapp_broadcast',
-            label: 'Siaran Terlambat',
-            total: 0,
-            userId: $this->admin->id
-        );
-
-        (new SendWhatsAppBroadcastJob(
-            targetType: 'all',
-            classIds: null,
-            messageText: 'Imbauan bagi siswa terlambat hari ini.',
-            progressUuid: $reporter->uuid(),
-            actorId: $this->admin->id,
-            recipientScope: 'late'
-        ))->handle(app(WhatsAppSendPacer::class));
-
-        $this->assertDatabaseCount('notification_logs', 1);
-        $this->assertDatabaseHas('notification_logs', [
-            'recipient_phone' => $this->guardian1->wa_number,
-            'status' => 'sent',
-        ]);
-
-        $task = TaskProgress::where('uuid', $reporter->uuid())->firstOrFail();
-        $this->assertSame(1, $task->total);
-        $this->assertSame('completed', $task->status);
     }
 
     public function test_broadcast_messages_are_scheduled_with_safe_gap(): void

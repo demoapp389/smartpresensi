@@ -7,7 +7,6 @@ use App\Models\NotificationLog;
 use App\Models\Student;
 use App\Models\TaskProgress;
 use App\Models\WhatsAppTemplate;
-use App\Services\AttendanceStatusResolver;
 use App\Services\WhatsApp\WhatsAppSendPacer;
 use App\Support\TaskProgressReporter;
 use Illuminate\Bus\Queueable;
@@ -46,7 +45,6 @@ class SendWhatsAppBroadcastJob implements ShouldBeUnique, ShouldQueue
 
     /**
      * @param  list<int>|null  $classIds
-     * @param  string  $recipientScope  'all' (semua siswa) atau 'late' (hanya siswa terlambat hari ini)
      */
     public function __construct(
         public string $targetType,
@@ -54,7 +52,6 @@ class SendWhatsAppBroadcastJob implements ShouldBeUnique, ShouldQueue
         public string $messageText,
         public string $progressUuid,
         public ?int $actorId = null,
-        public string $recipientScope = 'all',
     ) {
         $this->onQueue('default');
     }
@@ -91,9 +88,7 @@ class SendWhatsAppBroadcastJob implements ShouldBeUnique, ShouldQueue
                 'total' => 0,
                 'sent' => 0,
                 'failed' => 0,
-            ], $this->recipientScope === 'late'
-                ? 'Tidak ada siswa terlambat hari ini pada target terpilih yang memiliki nomor WhatsApp wali valid.'
-                : 'Tidak ada nomor WhatsApp wali yang valid pada target terpilih.');
+            ], 'Tidak ada nomor WhatsApp wali yang valid pada target terpilih.');
 
             return;
         }
@@ -186,13 +181,6 @@ class SendWhatsAppBroadcastJob implements ShouldBeUnique, ShouldQueue
                     ->whereNotNull('wa_number');
             }])
             ->where('active', true);
-
-        if ($this->recipientScope === 'late') {
-            $query->whereHas('attendances', function ($q): void {
-                $q->whereDate('school_date', now('Asia/Jakarta')->toDateString())
-                    ->where('check_in_status', AttendanceStatusResolver::CHECK_IN_LATE);
-            });
-        }
 
         if ($this->targetType === 'class' && ! empty($this->classIds)) {
             $query->whereIn('class_id', $this->classIds);
