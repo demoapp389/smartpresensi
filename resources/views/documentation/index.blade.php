@@ -298,7 +298,8 @@
             'title' => 'Kapan notifikasi dikirim, ditahan, atau dibatalkan?',
             'keywords' => 'notifikasi ditahan held dibatalkan cancelled consent opt-in valid',
             'body' => 'Notifikasi kehadiran (masuk/terlambat/pulang) dikirim otomatis setelah absensi diproses.'
-                .'<ul><li>Nomor wali berstatus <strong>Valid</strong> akan diproses; nomor <strong>invalid</strong> otomatis dibatalkan untuk menghemat kuota gateway.</li>'
+                .'<ul><li>Penerima dapat diatur di <strong>Pengaturan Gateway &rarr; Penerima Notifikasi Otomatis</strong>: <strong>Semua Wali Siswa</strong> atau <strong>Hanya Wali Siswa Terlambat</strong> (hemat kuota).</li>'
+                .'<li>Nomor wali berstatus <strong>Valid</strong> akan diproses; nomor <strong>invalid</strong> otomatis dibatalkan untuk menghemat kuota gateway.</li>'
                 .'<li>Pesan dapat berstatus <strong>ditahan</strong> (menunggu validasi nomor) sebelum dilepas otomatis.</li>'
                 .'<li>Pastikan wali sudah memberi <strong>consent</strong> pada data siswa. Consent dapat dicentang di form siswa atau diisi melalui kolom <strong>Persetujuan WA</strong> saat import Excel.</li></ul>',
         ],
@@ -320,7 +321,7 @@
             'cat' => 'whatsapp',
             'title' => 'Bagaimana memeriksa pengaturan gateway dan uji kirim?',
             'keywords' => 'gateway fonnte meta token kredensial uji kirim pengaturan',
-            'body' => 'Administrator dapat membuka <strong>Pengaturan Gateway</strong> untuk melihat driver aktif, kredensial (tersamar), dan parameter validasi. Nilai dibaca dari berkas <code>config/whatsapp.php</code>/<code>.env</code> dan <strong>tidak dapat diubah dari halaman ini</strong>. Gunakan panel <strong>Endpoint Webhook Publik</strong> untuk menyalin URL webhook ke Fonnte, dan panel <strong>Uji Kirim Pesan</strong> untuk memverifikasi konektivitas ke nomor tujuan.',
+            'body' => 'Administrator dapat membuka <strong>Pengaturan Gateway</strong> untuk melihat driver aktif, kredensial (tersamar), dan parameter validasi. Nilai driver/kredensial dibaca dari berkas <code>config/whatsapp.php</code>/<code>.env</code> dan <strong>tidak dapat diubah dari halaman ini</strong>. Panel <strong>Penerima Notifikasi Otomatis</strong> dapat diubah dan disimpan langsung (Semua Wali Siswa / Hanya Wali Siswa Terlambat). Gunakan panel <strong>Endpoint Webhook Publik</strong> untuk menyalin URL webhook ke Fonnte, dan panel <strong>Uji Kirim Pesan</strong> untuk memverifikasi konektivitas ke nomor tujuan.',
         ],
         [
             'cat' => 'whatsapp',

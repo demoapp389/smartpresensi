@@ -6,6 +6,7 @@ use App\Jobs\SendWhatsAppNotificationJob;
 use App\Jobs\ValidateGuardianPhoneJob;
 use App\Models\Attendance;
 use App\Models\NotificationLog;
+use App\Models\WhatsAppSetting;
 
 /**
  * Service untuk memproses outbox notifikasi WhatsApp ke wali siswa.
@@ -30,6 +31,14 @@ class WhatsAppNotificationService
 
         $student = $attendance->student;
         if (! $student || ! $student->active) {
+            return [];
+        }
+
+        // Hormati pengaturan penerima notifikasi otomatis. Bila operator memilih
+        // "hanya siswa terlambat", notifikasi untuk siswa tepat waktu tidak
+        // dibuat sama sekali (termasuk notifikasi pulang) agar kuota hemat.
+        if (WhatsAppSetting::notifiesLateStudentsOnly()
+            && $attendance->check_in_status !== AttendanceStatusResolver::CHECK_IN_LATE) {
             return [];
         }
 

@@ -184,8 +184,9 @@ Route::middleware('auth')->group(function () {
         // 9. Audit Log Sistem
         Route::get('/audit', [AuditLogController::class, 'index'])->name('audit.index');
 
-        // Pengaturan Gateway WhatsApp (hanya admin, read-only + uji kirim)
+        // Pengaturan Gateway WhatsApp (hanya admin; kredensial read-only + uji kirim)
         Route::get('/notifications/gateway', [NotificationLogController::class, 'gateway'])->name('notifications.gateway');
+        Route::put('/notifications/gateway/settings', [NotificationLogController::class, 'updateGatewaySettings'])->name('notifications.gateway.settings.update');
 
         // Editor Kustomisasi Template Pesan WhatsApp
         Route::get('/whatsapp/templates', [WhatsAppTemplateController::class, 'index'])->name('whatsapp.templates.index');

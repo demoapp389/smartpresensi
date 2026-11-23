@@ -6,6 +6,7 @@ use App\Concerns\LogsAuditTrail;
 use App\Http\Controllers\Concerns\HasHybridFilters;
 use App\Jobs\SendWhatsAppNotificationJob;
 use App\Models\NotificationLog;
+use App\Models\WhatsAppSetting;
 use App\Services\WhatsApp\FonnteNumberValidationService;
 use App\Services\WhatsApp\WhatsAppManager;
 use App\Services\WhatsApp\WhatsAppSendPacer;
@@ -119,7 +120,44 @@ class NotificationLogController extends Controller
             'webhook_secret_configured' => (string) config('whatsapp.webhook_secret', '') !== '',
         ];
 
-        return view('settings.whatsapp-gateway', compact('gateway'));
+        $autoNotificationScope = WhatsAppSetting::autoNotificationScope();
+
+        return view('settings.whatsapp-gateway', compact('gateway', 'autoNotificationScope'));
+    }
+
+    /**
+     * Simpan pengaturan penerima notifikasi absensi otomatis.
+     *
+     * Hanya pengaturan non-rahasia yang boleh diubah dari UI; kredensial
+     * gateway tetap dibaca dari file konfigurasi.
+     */
+    public function updateGatewaySettings(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'auto_notification_scope' => ['required', 'string', 'in:'.implode(',', WhatsAppSetting::SCOPES)],
+        ], [
+            'auto_notification_scope.required' => 'Pilih penerima notifikasi otomatis.',
+            'auto_notification_scope.in' => 'Pilihan penerima notifikasi otomatis tidak valid.',
+        ]);
+
+        $setting = WhatsAppSetting::current();
+        $before = $setting->auto_notification_scope;
+
+        $setting->update([
+            'auto_notification_scope' => $validated['auto_notification_scope'],
+        ]);
+
+        $this->logAudit('update_whatsapp_notification_scope', 'WhatsAppSetting', $setting->id, [
+            'auto_notification_scope' => $before,
+        ], [
+            'auto_notification_scope' => $validated['auto_notification_scope'],
+        ]);
+
+        $message = $validated['auto_notification_scope'] === WhatsAppSetting::SCOPE_LATE
+            ? 'Notifikasi otomatis kini hanya dikirim ke wali siswa yang terlambat.'
+            : 'Notifikasi otomatis kini dikirim ke semua wali siswa.';
+
+        return back()->with('success', $message);
     }
 
     /**

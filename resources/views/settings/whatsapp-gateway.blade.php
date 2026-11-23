@@ -3,7 +3,7 @@
 @section('title', 'Pengaturan Gateway')
 @section('page-pretitle', 'WhatsApp')
 @section('page-title', 'Pengaturan Gateway WhatsApp')
-@section('page-subtitle', 'Konfigurasi driver, kredensial, dan parameter validasi nomor wali (hanya baca)')
+@section('page-subtitle', 'Konfigurasi driver, kredensial, penerima notifikasi otomatis, dan parameter validasi nomor wali')
 
 @section('breadcrumb')
     <a href="{{ route('dashboard') }}" class="transition-colors hover:text-[var(--text)]">Beranda</a>
@@ -20,9 +20,11 @@
     <div class="rounded-[var(--radius)] border border-sky-200 bg-sky-50/60 p-3 text-xs text-sky-900 flex items-start gap-2.5">
         <x-icon name="info" class="size-4 shrink-0 mt-0.5 text-sky-600" />
         <p class="leading-relaxed">
-            Nilai di bawah dibaca dari file <code class="font-mono">config/whatsapp.php</code> yang bersumber dari variabel
-            lingkungan (<code class="font-mono">.env</code>) dan <strong>tidak dapat diubah dari halaman ini</strong>.
-            Token rahasia ditampilkan dalam bentuk tersamar; gunakan tombol Uji Kirim untuk memverifikasi konektivitas.
+            <strong>Penerima notifikasi otomatis</strong> dapat diubah dan disimpan dari halaman ini. Nilai driver,
+            kredensial, dan parameter validasi dibaca dari <code class="font-mono">config/whatsapp.php</code> yang
+            bersumber dari variabel lingkungan (<code class="font-mono">.env</code>) sehingga
+            <strong>tidak dapat diubah dari halaman ini</strong>. Token rahasia ditampilkan dalam bentuk tersamar;
+            gunakan tombol Uji Kirim untuk memverifikasi konektivitas.
         </p>
     </div>
 
@@ -106,6 +108,62 @@
         <x-stat-card label="Nama Sekolah" :value="$gateway['school_name']" hint="Dipakai pada pesan notifikasi" />
         <x-stat-card label="Batas Retry" :value="$gateway['retry_limit']" hint="Percobaan kirim ulang per pesan" />
     </div>
+
+    {{-- Penerima notifikasi absensi otomatis (dapat diubah) --}}
+    <section class="min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)] overflow-hidden">
+        <div class="border-b border-[var(--border-subtle)] px-4 py-3">
+            <h2 class="text-xs font-bold text-[var(--text)]">Penerima Notifikasi Otomatis</h2>
+            <p class="text-[11px] text-[var(--text-muted)]">
+                Tentukan wali murid yang menerima notifikasi WhatsApp otomatis saat siswa scan presensi.
+            </p>
+        </div>
+
+        <form method="POST" action="{{ route('notifications.gateway.settings.update') }}" class="p-4 space-y-3 text-xs">
+            @csrf
+            @method('PUT')
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <label class="flex items-start gap-2.5 p-3 rounded-[var(--radius-sm)] border cursor-pointer transition-colors
+                              {{ $autoNotificationScope === 'all' ? 'border-[var(--primary)] bg-[var(--primary)]/5' : 'border-[var(--border)] bg-[var(--surface-secondary)]' }}">
+                    <input type="radio" name="auto_notification_scope" value="all" @checked($autoNotificationScope === 'all')
+                        class="mt-0.5 text-[var(--primary)] focus:ring-[var(--primary)]">
+                    <span>
+                        <span class="block font-semibold text-[var(--text)]">Semua Wali Siswa</span>
+                        <span class="block text-[11px] text-[var(--text-secondary)]">
+                            Kirim notifikasi untuk setiap siswa yang scan (hadir, terlambat, dan pulang).
+                        </span>
+                    </span>
+                </label>
+
+                <label class="flex items-start gap-2.5 p-3 rounded-[var(--radius-sm)] border cursor-pointer transition-colors
+                              {{ $autoNotificationScope === 'late' ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/30' : 'border-[var(--border)] bg-[var(--surface-secondary)]' }}">
+                    <input type="radio" name="auto_notification_scope" value="late" @checked($autoNotificationScope === 'late')
+                        class="mt-0.5 text-amber-600 focus:ring-amber-500">
+                    <span>
+                        <span class="block font-semibold text-[var(--text)]">Hanya Wali Siswa Terlambat</span>
+                        <span class="block text-[11px] text-[var(--text-secondary)]">
+                            Hanya siswa dengan presensi masuk terlambat hari itu yang dikirimi notifikasi.
+                        </span>
+                    </span>
+                </label>
+            </div>
+
+            @error('auto_notification_scope')
+                <p class="text-[11px] font-semibold text-rose-600">{{ $message }}</p>
+            @enderror
+
+            <div class="flex items-center justify-between gap-3 pt-1">
+                <p class="text-[11px] text-[var(--text-muted)]">
+                    Berlaku untuk notifikasi otomatis, bukan Siaran Pengumuman.
+                </p>
+                <button type="submit"
+                    class="inline-flex shrink-0 items-center gap-1.5 px-3.5 py-1.5 rounded-[var(--radius-sm)] bg-[var(--primary)] text-xs font-semibold text-white hover:brightness-95 transition-colors">
+                    <x-icon name="phone-check" class="size-3.5" />
+                    <span>Simpan Pengaturan</span>
+                </button>
+            </div>
+        </form>
+    </section>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
